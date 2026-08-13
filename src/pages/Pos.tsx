@@ -1,21 +1,725 @@
-import { ScanLine } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
+import {
+  ScanLine,
+  Search,
+  ShoppingCart,
+  Trash2,
+  Minus,
+  Plus,
+  X,
+  CheckCircle,
+  Loader2,
+  Banknote,
+  CreditCard,
+  Smartphone,
+  Printer,
+  AlertTriangle,
+  Package,
+} from 'lucide-react'
+
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/PageHeader'
+import { usePOS } from '@/hooks/usePOS'
+import { useProductLookup } from '@/hooks/useProductLookup'
+import { listActiveProducts, searchActiveProducts } from '@/services/sales'
+import { formatBRL } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import type { Product, SaleResult } from '@/types'
+
+type PaymentMethod = 'dinheiro' | 'cartao' | 'pix'
+
+const PAYMENT_LABELS: Record<PaymentMethod, string> = {
+  dinheiro: 'Dinheiro',
+  cartao: 'Cartão',
+  pix: 'Pix',
+}
+
+/** Format a sale date (ISO) as DD/MM/YYYY HH:mm (pt-BR, local time). */
+function formatSaleDate(iso: string): string {
+  const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z')
+  if (Number.isNaN(d.getTime())) return iso
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`
+}
+
+/** Parse a pt-BR decimal string ("12,50") into a number. */
+function parseBRLNumber(value: string): number {
+  if (!value) return 0
+  const normalized = value.replace(/\./g, '').replace(',', '.')
+  const n = parseFloat(normalized)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Play a short 800Hz success beep via the Web Audio API (no audio file). */
+function playSuccessBeep(): void {
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const oscillator = ctx.createOscillator()
+    const gain = ctx.createGain()
+    oscillator.type = 'sine'
+    oscillator.frequency.value = 800
+    gain.gain.value = 0.15
+    oscillator.connect(gain)
+    gain.connect(ctx.destination)
+    const now = ctx.currentTime
+    oscillator.start(now)
+    oscillator.stop(now + 0.1)
+    oscillator.onended = () => {
+      ctx.close().catch(() => {})
+    }
+  } catch {
+    // Audio is best-effort; ignore failures.
+  }
+}
 
 export default function PosPage() {
+  const pos = usePOS()
+  const { findByBarcode } = useProductLookup()
+
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
+  const [barcode, setBarcode] = useState('')
+  const [shake, setShake] = useState(false)
+
+  // Product search (debounced 300ms)
+  const [searchInput, setSearchInput] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState<Product[]>([])
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  // Active products check (for the empty-state banner)
+  const [hasActiveProducts, setHasActiveProducts] = useState<boolean | null>(null)
+
+  // Payment
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('dinheiro')
+  const [amountPaid, setAmountPaid] = useState('')
+
+  // Dialogs
+  const [receiptOpen, setReceiptOpen] = useState(false)
+  const [clearCartOpen, setClearCartOpen] = useState(false)
+
+  const cartEmpty = pos.cart.length === 0
+
+  // Autofocus the barcode input on mount.
+  useEffect(() => {
+    barcodeInputRef.current?.focus()
+  }, [])
+
+  // Check whether the user has any active products (for the banner).
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const products = await listActiveProducts()
+        if (mounted) setHasActiveProducts(products.length > 0)
+      } catch {
+        if (mounted) setHasActiveProducts(null)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  // Debounced product search (300ms).
+  useEffect(() => {
+    const term = searchInput.trim()
+    if (!term) {
+      setSearchResults([])
+      setSearchOpen(false)
+      setSearchTerm('')
+      return
+    }
+    setSearchTerm(term)
+    const t = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const results = await searchActiveProducts(term)
+        setSearchResults(results)
+        setSearchOpen(true)
+      } catch {
+        setSearchResults([])
+        setSearchOpen(true)
+        toast.error('Erro ao buscar produto. Tente novamente.')
+      } finally {
+        setSearchLoading(false)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  const amountPaidNum = useMemo(() => parseBRLNumber(amountPaid), [amountPaid])
+  const change = useMemo(
+    () => (paymentMethod === 'dinheiro' ? amountPaidNum - pos.cartTotal : 0),
+    [paymentMethod, amountPaidNum, pos.cartTotal],
+  )
+  const insufficientFunds =
+    paymentMethod === 'dinheiro' && !cartEmpty && amountPaidNum < pos.cartTotal
+  const canCheckout =
+    !cartEmpty &&
+    !pos.checkingOut &&
+    (paymentMethod !== 'dinheiro' || amountPaidNum >= pos.cartTotal)
+
+  const addProductToCart = useCallback(
+    (product: Product) => {
+      pos.addToCart({
+        productId: product.id,
+        name: product.name,
+        barcode: product.barcode,
+        price: product.price,
+      })
+      playSuccessBeep()
+    },
+    [pos],
+  )
+
+  const handleBarcodeSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      const code = barcode.trim()
+      if (!code) return
+      if (pos.checkingOut) return
+      try {
+        const product = await findByBarcode(code)
+        if (!product) {
+          toast.error(`Produto não encontrado para o código: ${code}`, {
+            description: undefined,
+          })
+          setShake(true)
+          setTimeout(() => setShake(false), 400)
+          setBarcode('')
+          barcodeInputRef.current?.focus()
+          return
+        }
+        if (!product.active) {
+          toast.error(`Produto inativo: ${product.name}`)
+          setBarcode('')
+          barcodeInputRef.current?.focus()
+          return
+        }
+        addProductToCart(product)
+        setBarcode('')
+        barcodeInputRef.current?.focus()
+      } catch {
+        toast.error('Erro ao buscar produto. Tente novamente.')
+        setBarcode('')
+        barcodeInputRef.current?.focus()
+      }
+    },
+    [barcode, pos.checkingOut, findByBarcode, addProductToCart],
+  )
+
+  const handleSearchSelect = useCallback(
+    (product: Product) => {
+      addProductToCart(product)
+      setSearchInput('')
+      setSearchResults([])
+      setSearchOpen(false)
+      barcodeInputRef.current?.focus()
+    },
+    [addProductToCart],
+  )
+
+  const handleCheckout = useCallback(async () => {
+    if (!canCheckout) return
+    const amountPaidValue = paymentMethod === 'dinheiro' ? amountPaidNum : null
+    const changeValue = paymentMethod === 'dinheiro' ? change : null
+    try {
+      const result: SaleResult = await pos.checkout({
+        paymentMethod,
+        amountPaid: amountPaidValue,
+        change: changeValue,
+      })
+      toast.success('Venda realizada com sucesso!')
+      setPaymentMethod('dinheiro')
+      setAmountPaid('')
+      setReceiptOpen(true)
+      if (pos.lowStockWarnings.length > 0) {
+        toast.warning(`Atenção: estoque baixo para: ${pos.lowStockWarnings.join(', ')}`)
+      }
+      setTimeout(() => barcodeInputRef.current?.focus(), 0)
+      void result
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Não foi possível finalizar a venda. Tente novamente.',
+      )
+    }
+  }, [canCheckout, paymentMethod, amountPaidNum, change, pos])
+
+  // Global keyboard shortcuts: F2 (focus barcode), F9 (checkout), Escape (close dropdown).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault()
+        barcodeInputRef.current?.focus()
+        barcodeInputRef.current?.select()
+      } else if (e.key === 'F9') {
+        if (canCheckout) {
+          e.preventDefault()
+          void handleCheckout()
+        }
+      } else if (e.key === 'Escape') {
+        if (searchOpen) {
+          setSearchOpen(false)
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [canCheckout, handleCheckout, searchOpen])
+
   return (
     <section>
       <PageHeader title="Ponto de Venda" subtitle="Venda produtos com leitor de código de barras" />
-      <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-6 border rounded-lg bg-card border-dashed">
-        <ScanLine className="h-12 w-12 text-muted-foreground mb-4" />
-        <h2 className="text-lg font-semibold text-foreground mb-1">PDV em construção</h2>
-        <p className="text-sm text-muted-foreground max-w-sm mb-6">
-          Aqui você vai lançar vendas usando o leitor de código de barras.
-        </p>
-        <Button disabled className="h-11 px-6">
-          Iniciar Venda
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
+        {/* ===================== LEFT COLUMN ===================== */}
+        <div className="flex flex-col gap-6">
+          {/* No active products banner */}
+          {hasActiveProducts === false && (
+            <div
+              className="flex items-start gap-2.5 rounded-[var(--radius)] px-4 py-3"
+              style={{
+                backgroundColor: 'hsl(var(--destructive) / 0.1)',
+                border: '1px solid hsl(var(--destructive) / 0.3)',
+              }}
+            >
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-semibold text-foreground">
+                  Você não tem produtos ativos cadastrados.
+                </p>
+                <p className="text-[0.8125rem] text-muted-foreground">
+                  Cadastre produtos na página de Produtos antes de vender.{' '}
+                  <Link to="/products" className="font-medium text-primary underline">
+                    Ir para Produtos
+                  </Link>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Section 1 — Barcode scanner input */}
+          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+            <Label
+              htmlFor="barcode-input"
+              className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground"
+            >
+              <ScanLine className="h-4 w-4 text-primary" />
+              Código de Barras
+            </Label>
+            <form onSubmit={handleBarcodeSubmit}>
+              <Input
+                id="barcode-input"
+                ref={barcodeInputRef}
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Escaneie ou digite o código..."
+                autoFocus
+                autoComplete="off"
+                aria-label="Campo de código de barras"
+                className={cn(
+                  'h-14 text-base font-medium tabular-nums',
+                  shake && 'animate-horizontal-shake',
+                )}
+                disabled={pos.checkingOut}
+              />
+            </form>
+            <p className="mt-2 text-xs text-muted-foreground">
+              O leitor envia o código automaticamente. Você também pode digitar e pressionar Enter.
+            </p>
+          </div>
+
+          {/* Section 2 — Product search */}
+          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+            <Label
+              htmlFor="product-search"
+              className="mb-2 block text-sm font-medium text-foreground"
+            >
+              Buscar Produto
+            </Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="product-search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+                onFocus={() => searchTerm && setSearchOpen(true)}
+                placeholder="Buscar produto por nome..."
+                aria-label="Buscar produto por nome"
+                autoComplete="off"
+                className="h-11 pl-10"
+              />
+              {searchOpen && (
+                <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-border bg-popover shadow-md">
+                  {searchLoading ? (
+                    <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Buscando...
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-muted-foreground">
+                      Nenhum produto encontrado
+                    </div>
+                  ) : (
+                    <ul className="max-h-72 overflow-y-auto">
+                      {searchResults.map((product) => (
+                        <li key={product.id}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSearchSelect(product)}
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:bg-accent/20"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-foreground">
+                                {product.name}
+                              </p>
+                              {product.barcode && (
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {product.barcode}
+                                </p>
+                              )}
+                            </div>
+                            <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                              {formatBRL(product.price)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ===================== RIGHT COLUMN ===================== */}
+        <div className="flex flex-col gap-4 rounded-[var(--radius)] border border-border bg-card p-5">
+          {/* Section 1 — Cart header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-foreground">Carrinho</h2>
+              <Badge variant="secondary" className="tabular-nums">
+                {pos.itemCount} {pos.itemCount === 1 ? 'item' : 'itens'}
+              </Badge>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setClearCartOpen(true)}
+              disabled={cartEmpty || pos.checkingOut}
+              className="h-9 gap-1.5 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              Limpar
+            </Button>
+          </div>
+
+          {/* Section 2 — Cart items list */}
+          {cartEmpty ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <ShoppingCart className="h-12 w-12 text-muted-foreground" />
+              <p className="mt-3 text-sm font-semibold text-foreground">Carrinho vazio</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Escaneie ou busque produtos para adicionar.
+              </p>
+            </div>
+          ) : (
+            <div
+              className="flex flex-col gap-2 overflow-y-auto pr-1"
+              style={{ maxHeight: '400px' }}
+            >
+              {pos.cart.map((item) => (
+                <div
+                  key={item.productId}
+                  className="flex items-start gap-3 rounded-md border border-border p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-foreground">{item.name}</p>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {formatBRL(item.price)} cada
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Diminuir quantidade"
+                      disabled={pos.checkingOut}
+                      onClick={() => {
+                        if (item.quantity <= 1) {
+                          pos.removeFromCart(item.productId)
+                        } else {
+                          pos.updateQuantity(item.productId, item.quantity - 1)
+                        }
+                      }}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <span className="min-w-[1.75rem] text-center text-sm font-semibold tabular-nums">
+                      {item.quantity}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Aumentar quantidade"
+                      disabled={pos.checkingOut}
+                      onClick={() => pos.updateQuantity(item.productId, item.quantity + 1)}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-sm font-bold tabular-nums text-foreground">
+                      {formatBRL(item.subtotal)}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      aria-label="Remover item"
+                      disabled={pos.checkingOut}
+                      onClick={() => pos.removeFromCart(item.productId)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Section 3 — Cart total */}
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <span className="text-sm font-medium text-muted-foreground">Total</span>
+            <span className="text-2xl font-bold tabular-nums text-foreground">
+              {formatBRL(pos.cartTotal)}
+            </span>
+          </div>
+
+          {/* Section 4 — Payment (only when cart not empty) */}
+          {!cartEmpty && (
+            <>
+              <Separator />
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium text-foreground">Forma de Pagamento</Label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {(
+                    [
+                      { value: 'dinheiro', label: 'Dinheiro', Icon: Banknote },
+                      { value: 'cartao', label: 'Cartão', Icon: CreditCard },
+                      { value: 'pix', label: 'Pix', Icon: Smartphone },
+                    ] as { value: PaymentMethod; label: string; Icon: typeof Banknote }[]
+                  ).map(({ value, label, Icon }) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      variant={paymentMethod === value ? 'default' : 'outline'}
+                      className="h-11 gap-2"
+                      disabled={pos.checkingOut}
+                      onClick={() => setPaymentMethod(value)}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {paymentMethod === 'dinheiro' && (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="amount-paid" className="text-sm font-medium text-foreground">
+                    Valor Recebido (R$)
+                  </Label>
+                  <Input
+                    id="amount-paid"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min={0}
+                    placeholder="0,00"
+                    value={amountPaid}
+                    onChange={(e) => setAmountPaid(e.target.value)}
+                    disabled={pos.checkingOut}
+                    className="h-11 tabular-nums"
+                  />
+                  <div
+                    className={cn(
+                      'rounded-md px-3 py-2 text-sm',
+                      insufficientFunds
+                        ? 'bg-destructive/10 text-destructive'
+                        : amountPaidNum === 0
+                          ? 'bg-muted text-muted-foreground'
+                          : 'bg-primary/10 text-primary',
+                    )}
+                  >
+                    {insufficientFunds
+                      ? 'Valor insuficiente'
+                      : amountPaidNum === 0
+                        ? 'Informe o valor recebido'
+                        : `Troco: ${formatBRL(change)}`}
+                  </div>
+                </div>
+              )}
+
+              {/* Section 5 — Checkout button */}
+              <Button
+                type="button"
+                className="h-12 w-full gap-2 text-base font-semibold"
+                disabled={!canCheckout}
+                onClick={() => void handleCheckout()}
+              >
+                {pos.checkingOut ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-5 w-5" />
+                    Finalizar Venda
+                  </>
+                )}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Clear cart confirmation dialog */}
+      <Dialog open={clearCartOpen} onOpenChange={setClearCartOpen}>
+        <DialogContent className="max-w-sm">
+          <div className="flex flex-col gap-2 text-center">
+            <DialogTitle>Limpar carrinho?</DialogTitle>
+            <DialogDescription>Todos os itens serão removidos.</DialogDescription>
+          </div>
+          <div className="mt-4 flex justify-end gap-3">
+            <Button variant="outline" className="h-11" onClick={() => setClearCartOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              className="h-11"
+              onClick={() => {
+                pos.clearCart()
+                setClearCartOpen(false)
+                barcodeInputRef.current?.focus()
+              }}
+            >
+              Limpar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt dialog */}
+      <Dialog
+        open={receiptOpen}
+        onOpenChange={(open) => {
+          setReceiptOpen(open)
+          if (!open) setTimeout(() => barcodeInputRef.current?.focus(), 0)
+        }}
+      >
+        <DialogContent className="max-w-[400px]">
+          <DialogTitle id="receipt-title" className="sr-only">
+            Cupom da venda
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Cupom não fiscal da venda realizada.
+          </DialogDescription>
+          <ReceiptContent sale={pos.lastSale} onClose={() => setReceiptOpen(false)} />
+        </DialogContent>
+      </Dialog>
+    </section>
+  )
+}
+
+/* ============================ RECEIPT ============================ */
+
+function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: () => void }) {
+  if (!sale) return null
+  const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
+  const shortId = sale.saleId.slice(0, 8)
+
+  return (
+    <div id="receipt-print" className="flex flex-col gap-2 font-mono text-sm text-foreground">
+      <h2 id="receipt-title" className="text-center text-base font-bold tracking-tight">
+        Assados Control
+      </h2>
+      <p className="text-center text-xs text-muted-foreground">Cupom Não Fiscal</p>
+      <div className="my-1 border-t border-dashed border-border" />
+      <div className="flex justify-between text-xs">
+        <span>{formatSaleDate(sale.date)}</span>
+        <span>#{shortId}</span>
+      </div>
+      <div className="my-1 border-t border-dashed border-border" />
+      <ul className="flex flex-col gap-1 text-xs">
+        {sale.items.map((item) => (
+          <li key={item.productId} className="flex flex-col">
+            <span className="truncate">
+              {item.quantity}x {item.name}
+            </span>
+            <span className="flex justify-between text-muted-foreground">
+              <span>{formatBRL(item.price)} un</span>
+              <span className="font-semibold text-foreground tabular-nums">
+                {formatBRL(item.subtotal)}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="my-1 border-t border-dashed border-border" />
+      <div className="flex justify-between text-sm font-bold">
+        <span>TOTAL</span>
+        <span className="tabular-nums">{formatBRL(sale.total)}</span>
+      </div>
+      <div className="flex justify-between text-xs">
+        <span>Pagamento:</span>
+        <span>{methodLabel}</span>
+      </div>
+      {sale.paymentMethod === 'dinheiro' && (
+        <>
+          <div className="flex justify-between text-xs">
+            <span>Recebido:</span>
+            <span className="tabular-nums">{formatBRL(sale.amountPaid ?? 0)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span>Troco:</span>
+            <span className="tabular-nums">{formatBRL(sale.change ?? 0)}</span>
+          </div>
+        </>
+      )}
+      <div className="my-1 border-t border-dashed border-border" />
+      <p className="text-center text-xs">Obrigado pela preferência!</p>
+      <div className="mt-3 flex gap-2 print:hidden">
+        <Button type="button" className="h-11 flex-1 gap-2" onClick={() => window.print()}>
+          <Printer className="h-4 w-4" />
+          Imprimir
+        </Button>
+        <Button type="button" variant="outline" className="h-11 flex-1" onClick={onClose}>
+          Fechar
         </Button>
       </div>
-    </section>
+    </div>
   )
 }

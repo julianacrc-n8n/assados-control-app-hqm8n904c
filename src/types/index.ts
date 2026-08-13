@@ -95,3 +95,48 @@ export interface PurchaseItemInput {
   quantity: number
   unitCost: number
 }
+
+/** Sale record owned by the authenticated user. */
+export interface Sale {
+  id: string
+  userId: string
+  total: number
+  paymentMethod: string
+  amountPaid: number | null
+  change: number | null
+  date: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** A line item of a sale. */
+export interface SaleItem {
+  id: string
+  userId: string
+  saleId: string
+  productId: string
+  quantity: number
+  unitPrice: number
+  createdAt: string
+}
+
+/** A product in the POS cart. `subtotal` is `price * quantity`. */
+export interface CartItem {
+  productId: string
+  name: string
+  barcode: string | null
+  price: number
+  quantity: number
+  subtotal: number
+}
+
+/** The result of a successful checkout, used to render the receipt. */
+export interface SaleResult {
+  saleId: string
+  total: number
+  paymentMethod: string
+  amountPaid: number | null
+  change: number | null
+  date: string
+  items: CartItem[]
+}
