@@ -741,12 +741,12 @@ function openPrintWindow(sale: SaleResult): void {
   const itemsHtml = sale.items
     .map(
       (item) => `
-        <div style="margin-bottom:4px;">
-          <div>${item.quantity}x ${escapeHtml(item.name)}</div>
-          <div style="display:flex;justify-content:space-between;color:#666;">
-            <span>${formatBRL(item.price)} un</span>
-            <span style="font-weight:600;color:#000;">${formatBRL(item.subtotal)}</span>
-          </div>
+        <div class="item" style="display:flex;justify-content:space-between;font-size:11px;line-height:1.6;">
+          <span>${item.quantity}x ${escapeHtml(item.name)}</span>
+          <span style="font-weight:700;">${formatBRL(item.subtotal)}</span>
+        </div>
+        <div class="item-unit" style="font-size:9px;color:#666;text-align:left;">
+          ${formatBRL(item.price)} un
         </div>`,
     )
     .join('')
@@ -754,11 +754,11 @@ function openPrintWindow(sale: SaleResult): void {
   const cashHtml =
     sale.paymentMethod === 'dinheiro'
       ? `
-        <div style="display:flex;justify-content:space-between;">
+        <div style="display:flex;justify-content:space-between;font-size:10px;line-height:1.6;">
           <span>Recebido:</span>
           <span>${formatBRL(sale.amountPaid ?? 0)}</span>
         </div>
-        <div style="display:flex;justify-content:space-between;">
+        <div style="display:flex;justify-content:space-between;font-size:10px;line-height:1.6;">
           <span>Troco:</span>
           <span>${formatBRL(sale.change ?? 0)}</span>
         </div>`
@@ -772,45 +772,107 @@ function openPrintWindow(sale: SaleResult): void {
 <title>Cupom Não Fiscal</title>
 <style>
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+  @page { size: 80mm auto; margin: 0; }
+  html { margin: 0; padding: 0; }
   body {
+    width: 80mm;
+    margin: 0;
+    padding: 2mm 4mm;
     font-family: 'Courier New', Courier, monospace;
-    color: #000;
-    background: #fff;
-    padding: 8mm;
     font-size: 12px;
-    line-height: 1.4;
+    line-height: 1.6;
+    color: black;
+    background: white;
   }
-  .center { text-align: center; }
-  .bold { font-weight: bold; }
-  .muted { color: #666; }
-  .row { display: flex; justify-content: space-between; }
-  .dashed { border-top: 1px dashed #999; margin: 6px 0; }
-  @page { margin: 0; }
+  .receipt {
+    width: 100%;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    background: white;
+  }
+  .header {
+    text-align: center;
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 2mm;
+  }
+  .subheader {
+    text-align: center;
+    font-size: 10px;
+    margin-bottom: 2mm;
+  }
+  .dashed {
+    border-top: 1px dashed #999;
+    margin: 2mm 0;
+    width: 100%;
+  }
+  .meta {
+    font-size: 10px;
+    color: black;
+    line-height: 1.5;
+    display: flex;
+    justify-content: space-between;
+  }
+  .items { font-size: 11px; line-height: 1.6; }
+  .total {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 1mm;
+  }
+  .footer {
+    text-align: center;
+    font-size: 10px;
+    margin-top: 2mm;
+  }
+  .cut-margin { height: 5mm; }
+  @media print and (max-width: 58mm) {
+    body {
+      padding: 2mm 2mm;
+      font-size: 10px;
+      line-height: 1.4;
+    }
+    .receipt {
+      padding: 0 2mm;
+    }
+    .header { font-size: 13px; }
+    .items { font-size: 10px; line-height: 1.4; }
+    .item { font-size: 10px !important; line-height: 1.4 !important; }
+    .item-unit { font-size: 8px !important; }
+    .total { font-size: 12px; }
+  }
 </style>
 </head>
 <body>
-  <div class="center bold" style="font-size:14px;">Assados Control</div>
-  <div class="center muted" style="font-size:11px;">Cupom Não Fiscal</div>
-  <div class="dashed"></div>
-  <div class="row">
-    <span>${formatSaleDate(sale.date)}</span>
-    <span>#${shortId}</span>
+  <div class="receipt">
+    <div class="header">Assados Control</div>
+    <div class="subheader">Cupom Não Fiscal</div>
+    <div class="dashed"></div>
+    <div class="meta">
+      <span>${formatSaleDate(sale.date)}</span>
+      <span>#${shortId}</span>
+    </div>
+    <div class="dashed"></div>
+    <div class="items">
+      ${itemsHtml}
+    </div>
+    <div class="dashed"></div>
+    <div class="total">
+      <span>TOTAL</span>
+      <span>${formatBRL(sale.total)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;line-height:1.6;">
+      <span>Pagamento:</span>
+      <span>${escapeHtml(methodLabel)}</span>
+    </div>
+    ${cashHtml}
+    <div class="dashed"></div>
+    <div class="footer">Obrigado pela preferência!</div>
+    <div class="cut-margin"></div>
   </div>
-  <div class="dashed"></div>
-  ${itemsHtml}
-  <div class="dashed"></div>
-  <div class="row bold" style="font-size:13px;">
-    <span>TOTAL</span>
-    <span>${formatBRL(sale.total)}</span>
-  </div>
-  <div class="row">
-    <span>Pagamento:</span>
-    <span>${escapeHtml(methodLabel)}</span>
-  </div>
-  ${cashHtml}
-  <div class="dashed"></div>
-  <div class="center">Obrigado pela preferência!</div>
   <script>
     window.onload = function () { window.print(); };
     window.onafterprint = function () { window.close(); };
