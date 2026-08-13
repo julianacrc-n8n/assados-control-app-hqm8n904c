@@ -224,21 +224,21 @@ function IngredientsTab({
       {/* Low stock alert banner */}
       {lowStock.length > 0 && !loading && !error && (
         <div
-          className="mb-6 flex flex-col gap-1 rounded-[var(--radius)] px-4 py-3"
+          className="mb-6 flex items-start gap-2.5 rounded-[var(--radius)] px-4 py-3"
           style={{
             backgroundColor: 'hsl(var(--destructive) / 0.1)',
             border: '1px solid hsl(var(--destructive) / 0.3)',
           }}
         >
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
-            <p className="text-sm font-medium text-foreground">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-semibold text-foreground">
               Atenção: {lowStock.length} insumo(s) com estoque baixo.
             </p>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {lowStock.map((i) => i.name).join(', ')}
+            </p>
           </div>
-          <p className="pl-6 text-xs text-muted-foreground">
-            {lowStock.map((i) => i.name).join(', ')}
-          </p>
         </div>
       )}
 
@@ -929,17 +929,19 @@ function PurchaseCard({
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="tabular-nums text-xs text-muted-foreground">{formatDate(purchase.date)}</p>
-          <p className="truncate text-[0.9375rem] font-semibold text-foreground">
-            {purchase.supplier || 'Sem fornecedor'}
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {itemCount} {itemCount === 1 ? 'item' : 'itens'}
-          </p>
-        </div>
-        <p className="tabular-nums text-base font-semibold text-foreground">
+        <p className="tabular-nums text-[0.9375rem] font-semibold text-foreground">
+          {formatDate(purchase.date)}
+        </p>
+        <p className="tabular-nums text-base font-bold text-foreground">
           {formatBRL(purchase.total)}
+        </p>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <p className="truncate text-sm text-foreground">
+          {purchase.supplier || <span className="text-muted-foreground">Sem fornecedor</span>}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {itemCount} {itemCount === 1 ? 'item' : 'itens'}
         </p>
       </div>
       <div className="flex gap-2">

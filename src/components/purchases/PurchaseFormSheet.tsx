@@ -267,102 +267,57 @@ export function PurchaseFormSheet({
           </div>
 
           {/* Items */}
-          <div className="mb-3">
-            <Label className="mb-2 block text-sm font-medium text-foreground">Itens</Label>
-          </div>
-
-          <ul className="space-y-3">
-            {rows.map((row, idx) => {
-              const ing = row.ingredientId ? ingredientById.get(row.ingredientId) : null
-              const unit = ing?.unit ?? ''
-              const qty = parseNum(row.quantity)
-              const cost = parseNum(row.unitCost)
-              const subtotal = Number.isFinite(qty) && Number.isFinite(cost) ? qty * cost : 0
-              return (
-                <li
-                  key={row.key}
-                  className="rounded-[var(--radius)] border border-border bg-card p-4"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Item {idx + 1}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
-                      aria-label="Remover item"
-                      disabled={saving || rows.length === 1}
-                      onClick={() => removeRow(row.key)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="mt-3 flex flex-col gap-3">
-                    {/* Ingredient select */}
-                    <div>
-                      <Label
-                        htmlFor={`item-ingredient-${row.key}`}
-                        className="mb-1.5 block text-xs font-medium text-muted-foreground"
-                      >
-                        Insumo
-                      </Label>
-                      <Select
-                        value={row.ingredientId}
-                        onValueChange={(v) => updateRow(row.key, { ingredientId: v })}
-                        disabled={saving || noIngredients}
-                      >
-                        <SelectTrigger
-                          id={`item-ingredient-${row.key}`}
-                          className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
-                        >
-                          <SelectValue placeholder="Selecione um insumo" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ingredients.map((i) => (
-                            <SelectItem key={i.id} value={i.id}>
-                              {i.name} ({i.unit})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Quantity + unit */}
+          <div className="mt-6">
+            <Label className="mb-3 block text-sm font-semibold text-foreground">
+              Itens da Compra
+            </Label>
+            <ul className="flex flex-col">
+              {rows.map((row) => {
+                const ing = row.ingredientId ? ingredientById.get(row.ingredientId) : null
+                const unit = ing?.unit ?? ''
+                const qty = parseNum(row.quantity)
+                const cost = parseNum(row.unitCost)
+                const subtotal = Number.isFinite(qty) && Number.isFinite(cost) ? qty * cost : 0
+                return (
+                  <li
+                    key={row.key}
+                    className="mb-2 rounded-[var(--radius)] border border-border p-3 last:mb-0"
+                  >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                       <div className="flex-1">
-                        <Label
-                          htmlFor={`item-quantity-${row.key}`}
-                          className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                        <Select
+                          value={row.ingredientId}
+                          onValueChange={(v) => updateRow(row.key, { ingredientId: v })}
+                          disabled={saving || noIngredients}
                         >
-                          Quantidade
-                        </Label>
-                        <Input
-                          id={`item-quantity-${row.key}`}
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          step={0.01}
-                          placeholder="Quantidade"
-                          value={row.quantity}
-                          className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
-                          disabled={saving}
-                          onChange={(e) => updateRow(row.key, { quantity: e.target.value })}
-                        />
+                          <SelectTrigger
+                            id={`item-ingredient-${row.key}`}
+                            className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
+                          >
+                            <SelectValue placeholder="Selecione um insumo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ingredients.map((i) => (
+                              <SelectItem key={i.id} value={i.id}>
+                                {i.name} ({i.unit})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
+                      <Input
+                        id={`item-quantity-${row.key}`}
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step={0.01}
+                        placeholder="Quantidade"
+                        value={row.quantity}
+                        className="h-11 w-full rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 sm:w-[100px]"
+                        disabled={saving}
+                        onChange={(e) => updateRow(row.key, { quantity: e.target.value })}
+                      />
                       <span className="pb-2.5 text-sm text-muted-foreground">{unit || '—'}</span>
-                    </div>
-
-                    {/* Unit cost */}
-                    <div>
-                      <Label
-                        htmlFor={`item-unitcost-${row.key}`}
-                        className="mb-1.5 block text-xs font-medium text-muted-foreground"
-                      >
-                        Preço Unitário (R$)
-                      </Label>
                       <Input
                         id={`item-unitcost-${row.key}`}
                         type="number"
@@ -371,46 +326,52 @@ export function PurchaseFormSheet({
                         step={0.01}
                         placeholder="Preço Unitário (R$)"
                         value={row.unitCost}
-                        className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
+                        className="h-11 w-full rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 sm:w-[140px]"
                         disabled={saving}
                         onChange={(e) => updateRow(row.key, { unitCost: e.target.value })}
                       />
-                    </div>
-
-                    {/* Subtotal */}
-                    <div className="flex items-center justify-between rounded-[var(--radius)] bg-muted/50 px-3 py-2">
-                      <span className="text-xs text-muted-foreground">Subtotal</span>
-                      <span className="tabular-nums text-sm font-semibold text-foreground">
+                      <span className="pb-2.5 text-sm font-semibold tabular-nums text-foreground sm:min-w-[80px]">
                         {formatBRL(subtotal)}
                       </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                        aria-label="Remover item"
+                        disabled={saving || rows.length === 1}
+                        onClick={() => removeRow(row.key)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+                  </li>
+                )
+              })}
+            </ul>
 
-          {errors.items && (
-            <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
-              <AlertCircle className="h-3 w-3" />
-              {errors.items}
-            </p>
-          )}
+            {errors.items && (
+              <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
+                <AlertCircle className="h-3 w-3" />
+                {errors.items}
+              </p>
+            )}
 
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-3 h-11 w-full gap-2"
-            disabled={saving || noIngredients}
-            onClick={addRow}
-          >
-            <Plus className="h-4 w-4" />
-            Adicionar Item
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 h-10 gap-2 px-4"
+              disabled={saving || noIngredients}
+              onClick={addRow}
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Item
+            </Button>
+          </div>
 
           {/* Total */}
-          <div className="mt-5 flex items-center justify-between rounded-[var(--radius)] border border-border bg-card px-4 py-4">
-            <span className="text-sm font-medium text-foreground">Total</span>
+          <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
+            <span className="text-sm font-medium text-muted-foreground">Total</span>
             <span className="tabular-nums text-2xl font-bold text-foreground">
               {formatBRL(total)}
             </span>

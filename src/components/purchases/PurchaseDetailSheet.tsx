@@ -56,7 +56,7 @@ export function PurchaseDetailSheet({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-9 w-9 text-muted-foreground"
+              className="h-8 w-8 text-muted-foreground"
               aria-label="Fechar"
               onClick={() => onOpenChange(false)}
             >
