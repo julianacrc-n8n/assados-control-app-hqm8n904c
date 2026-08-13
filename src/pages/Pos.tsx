@@ -662,7 +662,10 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
   const shortId = sale.saleId.slice(0, 8)
 
   return (
-    <div id="receipt-print" className="flex flex-col gap-2 font-mono text-sm text-foreground">
+    <div
+      id="receipt-print"
+      className="receipt-print-area flex flex-col gap-2 font-mono text-sm text-foreground"
+    >
       <h2 id="receipt-title" className="text-center text-base font-bold tracking-tight">
         Assados Control
       </h2>
@@ -712,7 +715,7 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
       <div className="my-1 border-t border-dashed border-border" />
       <p className="text-center text-xs">Obrigado pela preferência!</p>
       <div className="mt-3 flex gap-2 print:hidden">
-        <Button type="button" className="h-11 flex-1 gap-2" onClick={() => window.print()}>
+        <Button type="button" className="h-11 flex-1 gap-2" onClick={() => openPrintWindow(sale)}>
           <Printer className="h-4 w-4" />
           Imprimir
         </Button>
@@ -722,4 +725,116 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
       </div>
     </div>
   )
+}
+
+/**
+ * Build a self-contained HTML document for the receipt and open it in a
+ * dedicated print window. This avoids the CSS visibility limitation where a
+ * Radix Dialog portal wrapper marked `visibility: hidden` prevents its
+ * descendants from being shown in print. Falls back to `window.print()` when
+ * the popup is blocked.
+ */
+function openPrintWindow(sale: SaleResult): void {
+  const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
+  const shortId = sale.saleId.slice(0, 8)
+
+  const itemsHtml = sale.items
+    .map(
+      (item) => `
+        <div style="margin-bottom:4px;">
+          <div>${item.quantity}x ${escapeHtml(item.name)}</div>
+          <div style="display:flex;justify-content:space-between;color:#666;">
+            <span>${formatBRL(item.price)} un</span>
+            <span style="font-weight:600;color:#000;">${formatBRL(item.subtotal)}</span>
+          </div>
+        </div>`,
+    )
+    .join('')
+
+  const cashHtml =
+    sale.paymentMethod === 'dinheiro'
+      ? `
+        <div style="display:flex;justify-content:space-between;">
+          <span>Recebido:</span>
+          <span>${formatBRL(sale.amountPaid ?? 0)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span>Troco:</span>
+          <span>${formatBRL(sale.change ?? 0)}</span>
+        </div>`
+      : ''
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cupom Não Fiscal</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    color: #000;
+    background: #fff;
+    padding: 8mm;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .center { text-align: center; }
+  .bold { font-weight: bold; }
+  .muted { color: #666; }
+  .row { display: flex; justify-content: space-between; }
+  .dashed { border-top: 1px dashed #999; margin: 6px 0; }
+  @page { margin: 0; }
+</style>
+</head>
+<body>
+  <div class="center bold" style="font-size:14px;">Assados Control</div>
+  <div class="center muted" style="font-size:11px;">Cupom Não Fiscal</div>
+  <div class="dashed"></div>
+  <div class="row">
+    <span>${formatSaleDate(sale.date)}</span>
+    <span>#${shortId}</span>
+  </div>
+  <div class="dashed"></div>
+  ${itemsHtml}
+  <div class="dashed"></div>
+  <div class="row bold" style="font-size:13px;">
+    <span>TOTAL</span>
+    <span>${formatBRL(sale.total)}</span>
+  </div>
+  <div class="row">
+    <span>Pagamento:</span>
+    <span>${escapeHtml(methodLabel)}</span>
+  </div>
+  ${cashHtml}
+  <div class="dashed"></div>
+  <div class="center">Obrigado pela preferência!</div>
+  <script>
+    window.onload = function () { window.print(); };
+    window.onafterprint = function () { window.close(); };
+  </script>
+</body>
+</html>`
+
+  const printWin = window.open('', '_blank', 'width=400,height=600')
+  if (!printWin) {
+    // Popup blocked — fall back to printing the current page.
+    window.print()
+    return
+  }
+  printWin.document.open()
+  printWin.document.write(html)
+  printWin.document.close()
+}
+
+/** Escape a string for safe insertion into raw HTML. */
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

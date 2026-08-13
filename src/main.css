@@ -130,25 +130,39 @@
 }
 
 @media print {
+  html,
+  body,
   body * {
-    visibility: hidden;
+    display: none !important;
   }
-  #receipt-print,
-  #receipt-print * {
-    visibility: visible;
+  .receipt-print-area,
+  .receipt-print-area * {
+    display: block !important;
   }
-  #receipt-print {
+  /* Preserve inline/inline-flex for spans and text elements */
+  .receipt-print-area span,
+  .receipt-print-area p,
+  .receipt-print-area h2,
+  .receipt-print-area li {
+    display: revert !important;
+  }
+  .receipt-print-area {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
-    max-width: 80mm;
-    margin: 0;
-    padding: 0;
+    background: white;
     border: none;
     box-shadow: none;
+    padding: 8mm;
+    font-family: 'Courier New', Courier, monospace;
+  }
+  /* Hide buttons inside the print area */
+  .receipt-print-area button,
+  .receipt-print-area .print\:hidden {
+    display: none !important;
   }
   @page {
-    margin: 8mm;
+    margin: 0;
   }
 }
