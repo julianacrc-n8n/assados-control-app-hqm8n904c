@@ -108,6 +108,13 @@ export default function PosPage() {
   // Payment
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('dinheiro')
   const [amountPaid, setAmountPaid] = useState('')
+  // Delivery fee (optional). Empty string = treated as 0.
+  const [deliveryFee, setDeliveryFee] = useState('')
+  const deliveryFeeNumRaw = useMemo(() => parseBRLNumber(deliveryFee), [deliveryFee])
+  const deliveryFeeNum = deliveryFeeNumRaw < 0 ? 0 : deliveryFeeNumRaw
+  const deliveryFeeNegative = deliveryFeeNumRaw < 0
+  const hasDeliveryFee = deliveryFeeNum > 0
+  const grandTotal = useMemo(() => pos.cartTotal + deliveryFeeNum, [pos.cartTotal, deliveryFeeNum])
 
   // Dialogs
   const [receiptOpen, setReceiptOpen] = useState(false)
@@ -165,15 +172,15 @@ export default function PosPage() {
 
   const amountPaidNum = useMemo(() => parseBRLNumber(amountPaid), [amountPaid])
   const change = useMemo(
-    () => (paymentMethod === 'dinheiro' ? amountPaidNum - pos.cartTotal : 0),
-    [paymentMethod, amountPaidNum, pos.cartTotal],
+    () => (paymentMethod === 'dinheiro' ? amountPaidNum - grandTotal : 0),
+    [paymentMethod, amountPaidNum, grandTotal],
   )
-  const insufficientFunds =
-    paymentMethod === 'dinheiro' && !cartEmpty && amountPaidNum < pos.cartTotal
+  const insufficientFunds = paymentMethod === 'dinheiro' && !cartEmpty && amountPaidNum < grandTotal
   const canCheckout =
     !cartEmpty &&
     !pos.checkingOut &&
-    (paymentMethod !== 'dinheiro' || amountPaidNum >= pos.cartTotal)
+    !deliveryFeeNegative &&
+    (paymentMethod !== 'dinheiro' || amountPaidNum >= grandTotal)
 
   const addProductToCart = useCallback(
     (product: Product) => {
@@ -244,10 +251,12 @@ export default function PosPage() {
         paymentMethod,
         amountPaid: amountPaidValue,
         change: changeValue,
+        deliveryFee: deliveryFeeNum,
       })
       toast.success('Venda realizada com sucesso!')
       setPaymentMethod('dinheiro')
       setAmountPaid('')
+      setDeliveryFee('')
       setReceiptOpen(true)
       if (pos.lowStockWarnings.length > 0) {
         toast.warning(`Atenção: estoque baixo para: ${pos.lowStockWarnings.join(', ')}`)
@@ -259,7 +268,7 @@ export default function PosPage() {
         err instanceof Error ? err.message : 'Não foi possível finalizar a venda. Tente novamente.',
       )
     }
-  }, [canCheckout, paymentMethod, amountPaidNum, change, pos])
+  }, [canCheckout, paymentMethod, amountPaidNum, change, pos, deliveryFeeNum])
 
   // Global keyboard shortcuts: F2 (focus barcode), F9 (checkout), Escape (close dropdown).
   useEffect(() => {
@@ -510,12 +519,31 @@ export default function PosPage() {
           )}
 
           {/* Section 3 — Cart total */}
-          <div className="flex items-center justify-between border-t border-border pt-3">
-            <span className="text-sm font-medium text-muted-foreground">Total</span>
-            <span className="text-2xl font-bold tabular-nums text-foreground">
-              {formatBRL(pos.cartTotal)}
-            </span>
-          </div>
+          {hasDeliveryFee ? (
+            <div className="flex flex-col gap-1 border-t border-border pt-3">
+              <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
+                <span>Subtotal</span>
+                <span>{formatBRL(pos.cartTotal)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
+                <span>Taxa de Entrega</span>
+                <span>{formatBRL(deliveryFeeNum)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-foreground">Total</span>
+                <span className="text-2xl font-bold tabular-nums text-foreground">
+                  {formatBRL(grandTotal)}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between border-t border-border pt-3">
+              <span className="text-sm font-medium text-muted-foreground">Total</span>
+              <span className="text-2xl font-bold tabular-nums text-foreground">
+                {formatBRL(pos.cartTotal)}
+              </span>
+            </div>
+          )}
 
           {/* Section 4 — Payment (only when cart not empty) */}
           {!cartEmpty && (
@@ -581,6 +609,33 @@ export default function PosPage() {
                   </div>
                 </div>
               )}
+
+              {/* Delivery fee — always visible when cart is not empty */}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="delivery-fee" className="text-sm font-medium text-foreground">
+                  Taxa de Entrega (R$)
+                </Label>
+                <Input
+                  id="delivery-fee"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min={0}
+                  placeholder="0,00"
+                  value={deliveryFee}
+                  onChange={(e) => setDeliveryFee(e.target.value)}
+                  disabled={pos.checkingOut}
+                  aria-label="Taxa de entrega em reais"
+                  className="h-11 tabular-nums"
+                />
+                <p className="text-xs text-muted-foreground">Preencha se a venda for entrega.</p>
+                {deliveryFeeNegative && (
+                  <p className="flex items-center gap-1 text-xs text-destructive">
+                    <AlertTriangle className="h-3 w-3" />
+                    A taxa de entrega não pode ser negativa.
+                  </p>
+                )}
+              </div>
 
               {/* Section 5 — Checkout button */}
               <Button
@@ -692,6 +747,15 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
         ))}
       </ul>
       <div className="my-1 border-t border-dashed border-border" />
+      {sale.deliveryFee > 0 && (
+        <>
+          <div className="flex justify-between text-xs">
+            <span>Taxa de Entrega</span>
+            <span className="tabular-nums">{formatBRL(sale.deliveryFee)}</span>
+          </div>
+          <div className="my-1 border-t border-dashed border-border" />
+        </>
+      )}
       <div className="flex justify-between text-sm font-bold">
         <span>TOTAL</span>
         <span className="tabular-nums">{formatBRL(sale.total)}</span>
@@ -761,6 +825,16 @@ function openPrintWindow(sale: SaleResult): void {
         <div style="display:flex;justify-content:space-between;font-size:10px;line-height:1.6;">
           <span>Troco:</span>
           <span>${formatBRL(sale.change ?? 0)}</span>
+        </div>`
+      : ''
+
+  const deliveryHtml =
+    sale.deliveryFee > 0
+      ? `
+        <div class="dashed"></div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;line-height:1.6;">
+          <span>Taxa de Entrega</span>
+          <span>${formatBRL(sale.deliveryFee)}</span>
         </div>`
       : ''
 
@@ -860,6 +934,7 @@ function openPrintWindow(sale: SaleResult): void {
       ${itemsHtml}
     </div>
     <div class="dashed"></div>
+    ${deliveryHtml}
     <div class="total">
       <span>TOTAL</span>
       <span>${formatBRL(sale.total)}</span>

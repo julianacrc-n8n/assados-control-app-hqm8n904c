@@ -104,6 +104,7 @@ export interface Sale {
   paymentMethod: string
   amountPaid: number | null
   change: number | null
+  deliveryFee: number
   date: string
   createdAt: string
   updatedAt: string
@@ -137,6 +138,7 @@ export interface SaleResult {
   paymentMethod: string
   amountPaid: number | null
   change: number | null
+  deliveryFee: number
   date: string
   items: CartItem[]
 }

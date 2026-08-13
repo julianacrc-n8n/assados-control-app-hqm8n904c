@@ -115,6 +115,7 @@ export function mapSale(r: any): Sale {
     paymentMethod: str(r.paymentMethod),
     amountPaid: num(r.amountPaid),
     change: num(r.change),
+    deliveryFee: num(r.deliveryFee, 0),
     date: date(r.date),
     createdAt: date(r.created),
     updatedAt: date(r.updated),

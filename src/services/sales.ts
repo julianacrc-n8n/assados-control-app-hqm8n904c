@@ -83,10 +83,11 @@ export async function listActiveProducts(): Promise<Product[]> {
  * Returns a SaleResult object suitable for the receipt dialog.
  *
  * @param cart        the cart items to sell
- * @param total       the computed cart total
+ * @param total       the computed cart total (items total + delivery fee)
  * @param paymentMethod one of "dinheiro" | "cartao" | "pix"
  * @param amountPaid  the cash received (null for non-cash methods)
  * @param change      the change to return (null for non-cash methods)
+ * @param deliveryFee the delivery fee charged for this sale (0 if none)
  */
 export async function checkoutSale(
   cart: CartItem[],
@@ -94,12 +95,14 @@ export async function checkoutSale(
   paymentMethod: string,
   amountPaid: number | null,
   change: number | null,
+  deliveryFee: number,
 ): Promise<SaleResult> {
   try {
     const userId = pb.authStore.record?.id
     if (!userId) throw new Error('Usuário não autenticado.')
 
     const date = new Date().toISOString()
+    const safeDeliveryFee = Number.isFinite(deliveryFee) && deliveryFee > 0 ? deliveryFee : 0
 
     const saleRecord = await pb.collection('sales').create({
       userId,
@@ -107,6 +110,7 @@ export async function checkoutSale(
       paymentMethod,
       amountPaid: amountPaid ?? 0,
       change: change ?? 0,
+      deliveryFee: safeDeliveryFee,
       date,
     })
 
@@ -129,6 +133,7 @@ export async function checkoutSale(
       paymentMethod,
       amountPaid,
       change,
+      deliveryFee: safeDeliveryFee,
       date,
       items: cart,
     }

@@ -20,6 +20,7 @@ export interface UsePOS {
     paymentMethod: string
     amountPaid: number | null
     change: number | null
+    deliveryFee: number
   }) => Promise<SaleResult>
 }
 
@@ -98,6 +99,7 @@ export function usePOS(): UsePOS {
       paymentMethod: string
       amountPaid: number | null
       change: number | null
+      deliveryFee: number
     }): Promise<SaleResult> => {
       const currentCart = cartRef.current
       if (currentCart.length === 0) {
@@ -105,12 +107,17 @@ export function usePOS(): UsePOS {
       }
       setCheckingOut(true)
       try {
+        const itemsTotal = currentCart.reduce((sum, item) => sum + item.subtotal, 0)
+        const safeDeliveryFee =
+          Number.isFinite(params.deliveryFee) && params.deliveryFee > 0 ? params.deliveryFee : 0
+        const grandTotal = itemsTotal + safeDeliveryFee
         const result = await checkoutSale(
           currentCart,
-          currentCart.reduce((sum, item) => sum + item.subtotal, 0),
+          grandTotal,
           params.paymentMethod,
           params.amountPaid,
           params.change,
+          safeDeliveryFee,
         )
         setLastSale(result)
         setCart([])

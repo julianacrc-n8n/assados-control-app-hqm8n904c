@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, Calculator, Loader2, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { AlertCircle, Calculator, Info, Loader2, RotateCcw, SlidersHorizontal } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -295,33 +295,82 @@ function MarginSimulator({
 }) {
   const [marginInput, setMarginInput] = useState('')
   const [priceInput, setPriceInput] = useState('')
+  const [ifoodInput, setIfoodInput] = useState('')
 
   const disabled = totalCost === null || totalCost <= 0 || loading
 
-  // suggestedPrice = totalCost / (1 - margin/100)
-  const suggestedPrice = useMemo(() => {
-    if (disabled || totalCost === null) return null
-    const m = parseFloat(marginInput.replace(',', '.'))
-    if (!Number.isFinite(m) || m >= 100 || m <= -Infinity) return null
-    const factor = 1 - m / 100
-    if (factor <= 0) return null
-    return totalCost / factor
-  }, [marginInput, totalCost, disabled])
+  // iFood commission (0 when empty/invalid).
+  const ifoodCommission = useMemo(() => {
+    const v = parseFloat(ifoodInput.replace(',', '.'))
+    return Number.isFinite(v) && v > 0 ? v : 0
+  }, [ifoodInput])
+  const hasIfood = ifoodCommission > 0
 
-  // resultingMargin = ((price - totalCost) / price) * 100
+  // suggestedPrice = totalCost / (1 - ifoodCommission/100 - margin/100)
+  // (without iFood: totalCost / (1 - margin/100), unchanged from before)
+  const suggested = useMemo(() => {
+    if (disabled || totalCost === null) {
+      return { price: null as number | null, error: false as boolean }
+    }
+    const m = parseFloat(marginInput.replace(',', '.'))
+    if (!Number.isFinite(m) || m <= -Infinity) return { price: null, error: false }
+
+    const factor = 1 - ifoodCommission / 100 - m / 100
+    if (hasIfood && factor <= 0) return { price: null, error: true }
+    if (!hasIfood && (m >= 100 || factor <= 0)) return { price: null, error: false }
+    if (factor <= 0) return { price: null, error: false }
+    return { price: totalCost / factor, error: false }
+  }, [marginInput, totalCost, disabled, ifoodCommission, hasIfood])
+
+  const suggestedPrice = suggested.price
+  const suggestedError = suggested.error
+
+  // iFood commission amount + net profit for the suggested-price mode.
+  const suggestedIfoodAmount = useMemo(() => {
+    if (suggestedPrice === null) return 0
+    return (suggestedPrice * ifoodCommission) / 100
+  }, [suggestedPrice, ifoodCommission])
+  const suggestedNetProfit = useMemo(() => {
+    if (suggestedPrice === null || totalCost === null) return null
+    return suggestedPrice - totalCost - suggestedIfoodAmount
+  }, [suggestedPrice, totalCost, suggestedIfoodAmount])
+
+  // resultingMargin = (1 - totalCost/price - ifoodCommission/100) * 100
+  // (without iFood: ((price - totalCost) / price) * 100, unchanged)
   const resultingMargin = useMemo(() => {
     if (disabled || totalCost === null) return null
     const p = parseFloat(priceInput.replace(',', '.'))
     if (!Number.isFinite(p) || p <= 0) return null
+    if (hasIfood) {
+      return (1 - totalCost / p - ifoodCommission / 100) * 100
+    }
     return ((p - totalCost) / p) * 100
-  }, [priceInput, totalCost, disabled])
+  }, [priceInput, totalCost, disabled, hasIfood, ifoodCommission])
+
+  // iFood commission amount + net profit for the desired-price mode.
+  const priceIfoodAmount = useMemo(() => {
+    if (!hasIfood || resultingMargin === null) return 0
+    const p = parseFloat(priceInput.replace(',', '.'))
+    if (!Number.isFinite(p) || p <= 0) return 0
+    return (p * ifoodCommission) / 100
+  }, [hasIfood, resultingMargin, priceInput])
+  const priceNetProfit = useMemo(() => {
+    if (!hasIfood || resultingMargin === null || totalCost === null) return null
+    const p = parseFloat(priceInput.replace(',', '.'))
+    if (!Number.isFinite(p) || p <= 0) return null
+    return p - totalCost - priceIfoodAmount
+  }, [hasIfood, resultingMargin, totalCost, priceInput, priceIfoodAmount])
 
   function handleApply() {
     if (suggestedPrice === null) return
     // pt-BR format with comma decimal separator, 2 decimals.
     const formatted = suggestedPrice.toFixed(2).replace('.', ',')
     onApplyPrice(formatted)
-    toast.success('Preço atualizado com base na margem.')
+    toast.success(
+      hasIfood
+        ? 'Preço atualizado com base na margem e comissão iFood.'
+        : 'Preço atualizado com base na margem.',
+    )
     // Brief scroll to the price field.
     const el = priceInputRef.current
     if (el) {
@@ -346,6 +395,37 @@ function MarginSimulator({
           <SimulatorInputDisabled />
           <SimulatorInputDisabled />
         </div>
+        {/* iFood commission — disabled when cost is unavailable */}
+        <div className="mt-3">
+          <Label
+            htmlFor="sim-ifood"
+            className="mb-2 block text-sm font-medium text-muted-foreground"
+          >
+            Comissão iFood (%)
+          </Label>
+          <Input
+            id="sim-ifood"
+            type="number"
+            inputMode="decimal"
+            step={0.1}
+            placeholder="Ex: 20"
+            disabled
+            aria-label="Comissão do iFood em porcentagem"
+            className="h-11 rounded-[var(--radius)] border-input bg-muted text-sm"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Cadastre compras dos insumos para calcular o custo e usar o simulador.
+          </p>
+        </div>
+        {/* Info note */}
+        <p
+          className="flex items-start text-xs text-muted-foreground"
+          style={{ fontSize: '0.75rem', gap: '0.375rem', marginTop: '0.375rem' }}
+        >
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          A comissão do iFood varia entre 18% e 27% dependendo do plano e região. Verifique sua taxa
+          no portal do parceiro iFood.
+        </p>
       </div>
     )
   }
@@ -380,12 +460,40 @@ function MarginSimulator({
               <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
             )}
           </div>
-          {suggestedPrice !== null && (
-            <div className="mt-2 rounded-[var(--radius)] bg-accent/10 px-3 py-2 text-sm font-medium text-accent-foreground">
-              Preço sugerido:{' '}
-              <span className="tabular-nums font-bold">{formatBRL(suggestedPrice)}</span>
-            </div>
-          )}
+          {suggestedError ? (
+            <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
+              <AlertCircle className="h-3 w-3" />
+              Margem e comissão somam 100% ou mais. Ajuste os valores.
+            </p>
+          ) : suggestedPrice !== null ? (
+            hasIfood ? (
+              <div className="mt-2 space-y-0.5">
+                <div className="rounded-[var(--radius)] bg-accent/10 px-3 py-2 text-[1.125rem] font-bold text-accent-foreground">
+                  Preço sugerido: <span className="tabular-nums">{formatBRL(suggestedPrice)}</span>
+                </div>
+                <p className="text-[0.8125rem] text-muted-foreground tabular-nums">
+                  Comissão iFood: {formatBRL(suggestedIfoodAmount)}
+                </p>
+                {suggestedNetProfit !== null && (
+                  <p
+                    className={cn(
+                      'text-[0.8125rem] font-semibold tabular-nums',
+                      suggestedNetProfit >= 0
+                        ? 'text-emerald-600 dark:text-emerald-500'
+                        : 'text-destructive',
+                    )}
+                  >
+                    Lucro líquido: {formatBRL(suggestedNetProfit)}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 rounded-[var(--radius)] bg-accent/10 px-3 py-2 text-sm font-medium text-accent-foreground">
+                Preço sugerido:{' '}
+                <span className="tabular-nums font-bold">{formatBRL(suggestedPrice)}</span>
+              </div>
+            )
+          ) : null}
         </div>
 
         {/* Input 2: desired price → resulting margin */}
@@ -410,27 +518,93 @@ function MarginSimulator({
               <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
             )}
           </div>
-          {resultingMargin !== null && (
-            <div
-              className={cn(
-                'mt-2 rounded-[var(--radius)] px-3 py-2 text-sm font-medium',
-                resultingMargin >= 0
-                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                  : 'bg-destructive/10 text-destructive',
-              )}
-            >
-              Margem resultante:{' '}
-              <span className="tabular-nums font-bold">{formatNumber(resultingMargin)}%</span>
-            </div>
+          {resultingMargin !== null &&
+            (hasIfood ? (
+              <div className="mt-2 space-y-0.5">
+                <div
+                  className={cn(
+                    'rounded-[var(--radius)] px-3 py-2 text-sm font-medium',
+                    resultingMargin >= 0
+                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-destructive/10 text-destructive',
+                  )}
+                >
+                  Margem resultante:{' '}
+                  <span className="tabular-nums font-bold">{formatNumber(resultingMargin)}%</span>
+                </div>
+                <p className="text-[0.8125rem] text-muted-foreground tabular-nums">
+                  Comissão iFood: {formatBRL(priceIfoodAmount)}
+                </p>
+                {priceNetProfit !== null && (
+                  <p
+                    className={cn(
+                      'text-[0.8125rem] font-semibold tabular-nums',
+                      priceNetProfit >= 0
+                        ? 'text-emerald-600 dark:text-emerald-500'
+                        : 'text-destructive',
+                    )}
+                  >
+                    Lucro líquido: {formatBRL(priceNetProfit)}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  'mt-2 rounded-[var(--radius)] px-3 py-2 text-sm font-medium',
+                  resultingMargin >= 0
+                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                    : 'bg-destructive/10 text-destructive',
+                )}
+              >
+                Margem resultante:{' '}
+                <span className="tabular-nums font-bold">{formatNumber(resultingMargin)}%</span>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      {/* Input 3: iFood commission — full-width row below the two simulators */}
+      <div className="mt-3">
+        <Label htmlFor="sim-ifood" className="mb-2 block text-sm font-medium text-foreground">
+          Comissão iFood (%)
+        </Label>
+        <div className="relative">
+          <Input
+            id="sim-ifood"
+            type="number"
+            inputMode="decimal"
+            step={0.1}
+            placeholder="Ex: 20"
+            disabled={loading}
+            value={ifoodInput}
+            onChange={(e) => setIfoodInput(e.target.value)}
+            aria-label="Comissão do iFood em porcentagem"
+            className="h-11 pr-9 rounded-[var(--radius)] border-input bg-background text-sm focus-visible:ring-2 focus-visible:ring-ring/20"
+          />
+          {loading && (
+            <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
           )}
         </div>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Percentual cobrado pelo iFood sobre o preço de venda. Varia entre 18% e 27% conforme o
+          plano.
+        </p>
+        <p
+          className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground"
+          style={{ fontSize: '0.75rem', marginTop: '0.375rem' }}
+        >
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          A comissão do iFood varia entre 18% e 27% dependendo do plano e região. Verifique sua taxa
+          no portal do parceiro iFood.
+        </p>
       </div>
 
       <Button
         type="button"
         variant="outline"
         className="mt-4 h-11 gap-2 px-4"
-        disabled={suggestedPrice === null || loading}
+        disabled={suggestedPrice === null || suggestedError || loading}
         onClick={handleApply}
         aria-label="Aplicar preço sugerido ao campo de preço"
       >
