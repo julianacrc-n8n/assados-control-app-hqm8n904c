@@ -105,6 +105,19 @@
     animation: row-flash 600ms ease-out;
   }
 
+  @keyframes flash-highlight {
+    0% {
+      background-color: hsl(var(--primary) / 0.3);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  .animate-flash-highlight {
+    animation: flash-highlight 600ms ease-out;
+  }
+
   @keyframes horizontal-shake {
     0%,
     100% {

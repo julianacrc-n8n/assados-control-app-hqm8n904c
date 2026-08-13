@@ -4,6 +4,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Package,
+  RefreshCw,
   ShoppingBag,
   ShoppingCart,
   Store,
@@ -13,7 +14,6 @@ import {
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/PageHeader'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useDashboard } from '@/hooks/useDashboard'
 import { formatBRL, formatNumber } from '@/lib/format'
@@ -41,6 +41,16 @@ function paymentLabel(method: string): string {
   return 'Dinheiro'
 }
 
+function paymentBadgeClass(label: string): string {
+  if (label === 'Cartão') {
+    return 'bg-[hsl(215,25%,50%,0.15)] text-[hsl(215,25%,40%)] dark:text-[hsl(215,25%,70%)]'
+  }
+  if (label === 'Pix') {
+    return 'bg-[hsl(265,70%,55%,0.15)] text-[hsl(265,70%,45%)] dark:text-[hsl(265,70%,70%)]'
+  }
+  return 'bg-[hsl(142,70%,45%,0.15)] text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,60%)]'
+}
+
 function formatDateBR(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -48,13 +58,44 @@ function formatDateBR(iso: string): string {
   return d.toLocaleDateString('pt-BR')
 }
 
-/** Animated value — remounts on change to trigger the fade-in animation. */
-function AnimatedValue({ value, className }: { value: string | number; className?: string }) {
+/**
+ * Animated value — remounts on change to trigger a brief highlight flash that
+ * fades out, signalling a realtime update.
+ */
+function AnimatedValue({
+  value,
+  className,
+  highlightClass,
+}: {
+  value: string | number
+  className?: string
+  highlightClass?: string
+}) {
   return (
-    <span key={String(value)} className={`animate-in fade-in-0 ${className ?? ''}`}>
+    <span
+      key={String(value)}
+      className={`inline-block animate-flash-highlight ${className ?? ''}`}
+      style={
+        highlightClass
+          ? ({
+              ['--flash-color' as string]: highlightClass,
+            } as React.CSSProperties)
+          : undefined
+      }
+    >
       {value}
     </span>
   )
+}
+
+interface MetricCardProps {
+  icon: React.ElementType
+  label: string
+  value: string | number
+  valueClassName?: string
+  iconContainerClass: string
+  iconClass: string
+  subtitle: React.ReactNode
 }
 
 function MetricCard({
@@ -62,26 +103,42 @@ function MetricCard({
   label,
   value,
   valueClassName,
+  iconContainerClass,
+  iconClass,
   subtitle,
-}: {
-  icon: React.ElementType
-  label: string
-  value: string | number
-  valueClassName?: string
-  subtitle: string
-}) {
+}: MetricCardProps) {
   return (
-    <article className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-6">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-        <Icon className="h-5 w-5 text-muted-foreground" />
+    <article className="metric-card group relative flex flex-col gap-2 overflow-hidden rounded-[var(--radius)] border border-border bg-card p-6">
+      <div
+        className={`mb-1 flex h-10 w-10 items-center justify-center rounded-lg ${iconContainerClass}`}
+      >
+        <Icon className={`h-5 w-5 ${iconClass}`} />
       </div>
-      <div className="flex flex-col gap-1">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <div className={`text-2xl font-bold tabular-nums ${valueClassName ?? 'text-foreground'}`}>
-          <AnimatedValue value={value} />
-        </div>
-        <span className="text-xs text-muted-foreground">{subtitle}</span>
+      <span
+        className="text-muted-foreground"
+        style={{
+          fontSize: '0.8125rem',
+          fontWeight: 500,
+          textTransform: 'uppercase',
+          letterSpacing: '0.03em',
+        }}
+      >
+        {label}
+      </span>
+      <div
+        className={`mt-0.5 text-foreground tabular-nums ${valueClassName ?? ''}`}
+        style={{ fontSize: '1.875rem', fontWeight: 700, lineHeight: 1.2 }}
+      >
+        <AnimatedValue value={value} />
       </div>
+      {subtitle && (
+        <span
+          className="mt-1 text-muted-foreground"
+          style={{ fontSize: '0.75rem', lineHeight: 1.4 }}
+        >
+          {subtitle}
+        </span>
+      )}
     </article>
   )
 }
@@ -90,35 +147,60 @@ function RecentSales({ sales }: { sales: Sale[] }) {
   const recent = [...sales].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 5)
 
   return (
-    <section className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4">
-      <h3 className="flex items-center gap-2 text-base font-semibold">
-        <ShoppingBag className="h-5 w-5" />
-        Vendas Recentes
-      </h3>
+    <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
+        <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-semibold text-foreground">Vendas Recentes</span>
+      </div>
       {recent.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-          <ShoppingBag className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Nenhuma venda registrada ainda.</p>
+        <div
+          className="flex flex-col items-center justify-center px-4 py-6 text-center"
+          style={{ padding: '1.5rem 1rem' }}
+        >
+          <ShoppingBag className="mb-2 h-5 w-5 text-muted-foreground" />
+          <p className="text-muted-foreground" style={{ fontSize: '0.8125rem' }}>
+            Nenhuma venda registrada ainda.
+          </p>
         </div>
       ) : (
-        <div>
-          {recent.map((s) => (
-            <div
-              key={s.id}
-              className="flex items-center justify-between border-b border-border px-3 py-3 last:border-b-0"
-            >
-              <div className="flex flex-col gap-1">
-                <span className="text-sm">{formatDateBR(s.date)}</span>
-                <Badge variant="outline" className="w-fit text-xs">
-                  {paymentLabel(s.paymentMethod)}
-                </Badge>
+        <div className="p-2">
+          {recent.map((s, idx) => {
+            const label = paymentLabel(s.paymentMethod)
+            return (
+              <div
+                key={s.id}
+                className="flex items-center justify-between px-2 py-3"
+                style={{
+                  borderBottom:
+                    idx === recent.length - 1 ? undefined : '1px solid hsl(var(--border) / 0.5)',
+                }}
+              >
+                <span
+                  className="text-muted-foreground tabular-nums"
+                  style={{ fontSize: '0.8125rem' }}
+                >
+                  {formatDateBR(s.date)}
+                </span>
+                <div className="flex flex-col items-end gap-0.5">
+                  <span
+                    className="font-semibold tabular-nums text-foreground"
+                    style={{ fontSize: '0.875rem' }}
+                  >
+                    {formatBRL(s.total)}
+                  </span>
+                  <span
+                    className={`inline-flex items-center rounded-full ${paymentBadgeClass(label)}`}
+                    style={{ padding: '0.125rem 0.5rem', fontSize: '0.6875rem', fontWeight: 500 }}
+                  >
+                    {label}
+                  </span>
+                </div>
               </div>
-              <span className="text-sm font-semibold tabular-nums">{formatBRL(s.total)}</span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -130,35 +212,60 @@ function RecentPurchases({
   const recent = [...purchases].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 5)
 
   return (
-    <section className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4">
-      <h3 className="flex items-center gap-2 text-base font-semibold">
-        <ShoppingCart className="h-5 w-5" />
-        Compras Recentes
-      </h3>
+    <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
+        <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-semibold text-foreground">Compras Recentes</span>
+      </div>
       {recent.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-          <ShoppingCart className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Nenhuma compra registrada ainda.</p>
+        <div
+          className="flex flex-col items-center justify-center px-4 py-6 text-center"
+          style={{ padding: '1.5rem 1rem' }}
+        >
+          <ShoppingCart className="mb-2 h-5 w-5 text-muted-foreground" />
+          <p className="text-muted-foreground" style={{ fontSize: '0.8125rem' }}>
+            Nenhuma compra registrada ainda.
+          </p>
         </div>
       ) : (
-        <div>
-          {recent.map((p) => (
+        <div className="p-2">
+          {recent.map((p, idx) => (
             <div
               key={p.id}
-              className="flex items-center justify-between border-b border-border px-3 py-3 last:border-b-0"
+              className="flex items-center justify-between px-2 py-3"
+              style={{
+                borderBottom:
+                  idx === recent.length - 1 ? undefined : '1px solid hsl(var(--border) / 0.5)',
+              }}
             >
-              <div className="flex flex-col gap-1">
-                <span className="text-sm">{formatDateBR(p.date)}</span>
-                <span className="text-xs text-muted-foreground">
+              <span
+                className="text-muted-foreground tabular-nums"
+                style={{ fontSize: '0.8125rem' }}
+              >
+                {formatDateBR(p.date)}
+              </span>
+              <div className="flex flex-col items-end gap-0.5">
+                <span
+                  className="font-semibold tabular-nums text-foreground"
+                  style={{ fontSize: '0.875rem' }}
+                >
+                  {formatBRL(p.total)}
+                </span>
+                <span
+                  className="text-muted-foreground"
+                  style={{
+                    fontSize: '0.75rem',
+                    fontStyle: p.supplier ? undefined : 'italic',
+                  }}
+                >
                   {p.supplier || 'Sem fornecedor'}
                 </span>
               </div>
-              <span className="text-sm font-semibold tabular-nums">{formatBRL(p.total)}</span>
             </div>
           ))}
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -180,29 +287,49 @@ function LowStockBanner({
 
   return (
     <div
-      className="mb-6 flex items-start gap-2.5 rounded-[var(--radius)] p-3 px-4"
+      className="mt-6 mb-0 flex items-start gap-2.5 rounded-[var(--radius)] p-4"
       style={{
         backgroundColor: 'hsl(var(--destructive) / 0.1)',
         border: '1px solid hsl(var(--destructive) / 0.3)',
+        padding: '0.875rem 1rem',
       }}
       role="alert"
     >
-      <AlertTriangle className="h-5 w-5 flex-shrink-0 text-destructive" />
-      <div className="flex-1">
-        <p className="text-sm font-semibold">
+      <AlertTriangle
+        className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive"
+        style={{ marginTop: '0.125rem' }}
+      />
+      <div className="flex flex-1 flex-col gap-1">
+        <p className="font-semibold text-foreground" style={{ fontSize: '0.875rem' }}>
           Atenção: {ingredients.length} insumo(s) com estoque baixo.
         </p>
-        <p className="mt-0.5 text-sm text-muted-foreground">{names}</p>
+        <p className="text-muted-foreground" style={{ fontSize: '0.8125rem', lineHeight: 1.5 }}>
+          {names}
+        </p>
       </div>
       <Button
         variant="ghost"
         size="icon"
-        className="h-6 w-6 flex-shrink-0"
+        className="h-7 w-7 flex-shrink-0 text-muted-foreground hover:bg-[hsl(var(--destructive)/0.15)] hover:text-foreground"
         onClick={onDismiss}
-        aria-label="Fechar alerta"
+        aria-label="Dispensar alerta de estoque"
       >
         <X className="h-4 w-4" />
       </Button>
+    </div>
+  )
+}
+
+function MetricCardSkeleton() {
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-[var(--radius)] border border-border bg-card p-6"
+      style={{ gap: '0.5rem' }}
+    >
+      <div className="h-10 w-10 animate-pulse rounded-lg bg-muted" />
+      <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+      <div className="h-8 w-32 animate-pulse rounded bg-muted" />
+      <div className="h-3 w-28 animate-pulse rounded bg-muted" />
     </div>
   )
 }
@@ -212,17 +339,40 @@ function LoadingState() {
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-20 w-full animate-pulse rounded-[var(--radius)] bg-muted" />
+          <MetricCardSkeleton key={i} />
         ))}
       </div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {[0, 1].map((col) => (
-          <div key={col} className="flex flex-col gap-2">
-            {[0, 1, 2].map((row) => (
-              <div key={row} className="h-12 animate-pulse rounded-md bg-muted" />
-            ))}
-          </div>
-        ))}
+      <div className="mt-2">
+        <h2 className="text-lg font-bold text-foreground" style={{ fontSize: '1.125rem' }}>
+          Atividade Recente
+        </h2>
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
+          {[0, 1].map((col) => (
+            <div
+              key={col}
+              className="overflow-hidden rounded-[var(--radius)] border border-border bg-card"
+            >
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
+                <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-32 animate-pulse rounded bg-muted" />
+              </div>
+              <div className="p-2">
+                {[0, 1, 2].map((row) => (
+                  <div
+                    key={row}
+                    className="flex items-center justify-between px-2 py-3"
+                    style={{
+                      borderBottom: row === 2 ? undefined : '1px solid hsl(var(--border) / 0.5)',
+                    }}
+                  >
+                    <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                    <div className="h-4 w-20 animate-pulse rounded bg-muted" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -230,17 +380,28 @@ function LoadingState() {
 
 function WelcomeState() {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
+    <div
+      className="flex flex-col items-center justify-center text-center"
+      style={{ padding: '3rem 1.5rem' }}
+    >
       <Store className="h-16 w-16 text-muted-foreground" />
-      <h2 className="mt-4 text-2xl font-bold">Bem-vindo ao Assados Control!</h2>
-      <p className="mt-2 max-w-md text-sm text-muted-foreground">
+      <h2
+        className="text-foreground"
+        style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '1rem' }}
+      >
+        Bem-vindo ao Assados Control!
+      </h2>
+      <p
+        className="text-muted-foreground"
+        style={{ fontSize: '0.875rem', marginTop: '0.5rem', maxWidth: 400 }}
+      >
         Comece cadastrando seus produtos e insumos para acompanhar seu negócio.
       </p>
-      <div className="mt-6 flex gap-3">
-        <Button asChild>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row" style={{ gap: '0.75rem' }}>
+        <Button asChild className="h-11 px-6">
           <Link to="/products">Cadastrar Produtos</Link>
         </Button>
-        <Button variant="outline" asChild>
+        <Button asChild variant="outline" className="h-11 px-6">
           <Link to="/purchases">Cadastrar Insumos</Link>
         </Button>
       </div>
@@ -250,13 +411,24 @@ function WelcomeState() {
 
 function ErrorState({ message, onRetry }: { message: string | null; onRetry: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <AlertCircle className="h-12 w-12 text-destructive" />
-      <h2 className="mt-4 text-lg font-semibold">Erro ao carregar dados</h2>
-      <p className="mt-2 max-w-[320px] text-sm text-muted-foreground">
+    <div
+      className="flex flex-col items-center justify-center text-center"
+      style={{ padding: '3rem 1.5rem' }}
+    >
+      <AlertCircle className="h-12 w-12 text-destructive" style={{ marginBottom: '1rem' }} />
+      <h2 className="text-foreground" style={{ fontSize: '1.125rem', fontWeight: 600 }}>
+        Erro ao carregar dados
+      </h2>
+      <p className="text-muted-foreground" style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
         {message || 'Não foi possível carregar o resumo do seu negócio.'}
       </p>
-      <Button variant="outline" className="mt-6 h-11" onClick={onRetry}>
+      <Button
+        variant="outline"
+        className="mt-4 h-11 px-5"
+        onClick={onRetry}
+        aria-label="Tentar novamente"
+      >
+        <RefreshCw className="h-4 w-4" />
         Tentar novamente
       </Button>
     </div>
@@ -281,6 +453,13 @@ export default function DashboardPage() {
     metrics.todaySalesCount === 0 &&
     metrics.totalProducts === 0
 
+  const profitColor =
+    metrics.totalProfit > 0
+      ? 'text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,55%)]'
+      : metrics.totalProfit < 0
+        ? 'text-destructive'
+        : 'text-foreground'
+
   return (
     <section>
       <PageHeader title="Dashboard" subtitle="Resumo financeiro do seu negócio" />
@@ -302,44 +481,82 @@ export default function DashboardPage() {
             {isEmpty ? (
               <WelcomeState />
             ) : (
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+              <div
+                className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4"
+                style={{ marginTop: '1.5rem' }}
+              >
                 <MetricCard
                   icon={TrendingUp}
                   label="Lucro Total"
                   value={formatBRL(metrics.totalProfit)}
-                  valueClassName={
-                    metrics.totalProfit > 0
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : metrics.totalProfit < 0
-                        ? 'text-destructive'
-                        : 'text-foreground'
+                  valueClassName={profitColor}
+                  iconContainerClass="bg-[hsl(142,70%,45%,0.15)]"
+                  iconClass="text-[hsl(142,70%,45%)]"
+                  subtitle={
+                    <>
+                      <span className="text-muted-foreground">Receitas:</span>{' '}
+                      <span className="text-foreground">{formatBRL(metrics.totalRevenue)}</span> |{' '}
+                      <span className="text-muted-foreground">Despesas:</span>{' '}
+                      <span className="text-foreground">{formatBRL(metrics.totalExpenses)}</span>
+                    </>
                   }
-                  subtitle={`Receitas: ${formatBRL(metrics.totalRevenue)} | Despesas: ${formatBRL(metrics.totalExpenses)}`}
                 />
                 <MetricCard
                   icon={ShoppingBag}
                   label="Vendas de Hoje"
                   value={formatBRL(metrics.todaySales)}
-                  subtitle={`${metrics.todaySalesCount} venda(s) hoje`}
+                  iconContainerClass="bg-[hsl(var(--primary)/0.15)]"
+                  iconClass="text-primary"
+                  subtitle={
+                    <>
+                      <span className="font-semibold text-foreground">
+                        {metrics.todaySalesCount}
+                      </span>{' '}
+                      <span className="text-muted-foreground">venda(s) hoje</span>
+                    </>
+                  }
                 />
                 <MetricCard
                   icon={TrendingDown}
                   label="Despesas do Mês"
                   value={formatBRL(metrics.monthExpenses)}
-                  subtitle={`${monthName} • ${metrics.monthExpensesCount} compra(s)`}
+                  iconContainerClass="bg-[hsl(var(--destructive)/0.15)]"
+                  iconClass="text-destructive"
+                  subtitle={
+                    <>
+                      <span className="font-medium text-foreground">{monthName}</span>
+                      <span className="text-muted-foreground"> — </span>
+                      <span className="font-semibold text-foreground">
+                        {metrics.monthExpensesCount}
+                      </span>{' '}
+                      <span className="text-muted-foreground">compra(s)</span>
+                    </>
+                  }
                 />
                 <MetricCard
                   icon={Package}
                   label="Produtos Ativos"
                   value={metrics.activeProducts}
-                  subtitle={`${metrics.totalProducts} total cadastrado(s)`}
+                  iconContainerClass="bg-[hsl(215,25%,50%,0.15)]"
+                  iconClass="text-[hsl(215,25%,50%)]"
+                  subtitle={
+                    <>
+                      <span className="font-semibold text-foreground">{metrics.totalProducts}</span>{' '}
+                      <span className="text-muted-foreground">total cadastrado(s)</span>
+                    </>
+                  }
                 />
               </div>
             )}
 
-            <div className="mt-8">
-              <h2 className="mb-4 text-lg font-semibold">Atividade Recente</h2>
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="mt-8" style={{ marginTop: '2rem' }}>
+              <h2 className="text-foreground" style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                Atividade Recente
+              </h2>
+              <div
+                className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6"
+                style={{ marginTop: '1rem' }}
+              >
                 <RecentSales sales={sales} />
                 <RecentPurchases purchases={purchases} />
               </div>
