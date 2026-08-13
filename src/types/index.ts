@@ -38,6 +38,25 @@ export interface RecipeItem {
   createdAt: string
 }
 
+export interface Purchase {
+  id: string
+  userId: string
+  supplier: string | null
+  total: number
+  date: string
+  createdAt: string
+}
+
+export interface PurchaseItem {
+  id: string
+  userId: string
+  purchaseId: string
+  ingredientId: string
+  quantity: number
+  unitCost: number
+  createdAt: string
+}
+
 /** Payload used when creating a product (server fills the rest). */
 export interface ProductInput {
   name: string
@@ -52,4 +71,27 @@ export interface RecipeItemInput {
   productId: string
   ingredientId: string
   quantity: number
+}
+
+/** Payload used when creating/updating an ingredient. */
+export interface IngredientInput {
+  name: string
+  unit: IngredientUnit
+  currentStock: number
+  minStock: number
+}
+
+/** Payload used when creating a purchase (server fills the rest). */
+export interface PurchaseInput {
+  supplier: string | null
+  total: number
+  date: string
+}
+
+/** Payload used when creating a purchase_item (server fills the rest). */
+export interface PurchaseItemInput {
+  purchaseId: string
+  ingredientId: string
+  quantity: number
+  unitCost: number
 }

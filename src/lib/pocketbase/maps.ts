@@ -7,7 +7,14 @@
  * `updatedAt` and resolving relation fields to their id string.
  */
 
-import type { Product, RecipeItem, Ingredient, IngredientUnit } from '@/types'
+import type {
+  Product,
+  RecipeItem,
+  Ingredient,
+  IngredientUnit,
+  Purchase,
+  PurchaseItem,
+} from '@/types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -72,6 +79,29 @@ export function mapRecipeItem(r: any): RecipeItem {
     productId: str(r.productId),
     ingredientId: str(r.ingredientId),
     quantity: num(r.quantity),
+    createdAt: date(r.created),
+  }
+}
+
+export function mapPurchase(r: any): Purchase {
+  return {
+    id: str(r.id),
+    userId: str(r.userId),
+    supplier: strOrNull(r.supplier),
+    total: num(r.total),
+    date: date(r.date),
+    createdAt: date(r.created),
+  }
+}
+
+export function mapPurchaseItem(r: any): PurchaseItem {
+  return {
+    id: str(r.id),
+    userId: str(r.userId),
+    purchaseId: str(r.purchaseId),
+    ingredientId: str(r.ingredientId),
+    quantity: num(r.quantity),
+    unitCost: num(r.unitCost),
     createdAt: date(r.created),
   }
 }
