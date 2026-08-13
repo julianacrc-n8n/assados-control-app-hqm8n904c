@@ -1,6 +1,6 @@
 import pb from '@/lib/pocketbase/client'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
-import { mapProduct } from '@/lib/pocketbase/maps'
+import { mapProduct, mapSale } from '@/lib/pocketbase/maps'
 import type { Product, Sale, CartItem, SaleResult } from '@/types'
 
 function toPTBR(error: unknown): Error {
@@ -24,6 +24,18 @@ export async function findProductByBarcode(barcode: string): Promise<Product | n
     })
     if (records.length === 0) return null
     return mapProduct(records[0])
+  } catch (error) {
+    throw toPTBR(error)
+  }
+}
+
+/** List all sales owned by the authenticated user (sorted by date desc). */
+export async function listAllSales(): Promise<Sale[]> {
+  try {
+    const records = await pb.collection('sales').getFullList({
+      sort: '-date',
+    })
+    return records.map((r) => mapSale(r))
   } catch (error) {
     throw toPTBR(error)
   }

@@ -140,3 +140,17 @@ export interface SaleResult {
   date: string
   items: CartItem[]
 }
+
+/** Aggregated metrics shown on the Dashboard page. */
+export interface DashboardMetrics {
+  totalRevenue: number
+  totalExpenses: number
+  totalProfit: number
+  todaySales: number
+  todaySalesCount: number
+  monthExpenses: number
+  monthExpensesCount: number
+  lowStockIngredients: Ingredient[]
+  totalProducts: number
+  activeProducts: number
+}

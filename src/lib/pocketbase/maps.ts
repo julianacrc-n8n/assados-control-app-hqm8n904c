@@ -14,6 +14,7 @@ import type {
   IngredientUnit,
   Purchase,
   PurchaseItem,
+  Sale,
 } from '@/types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -103,5 +104,19 @@ export function mapPurchaseItem(r: any): PurchaseItem {
     quantity: num(r.quantity),
     unitCost: num(r.unitCost),
     createdAt: date(r.created),
+  }
+}
+
+export function mapSale(r: any): Sale {
+  return {
+    id: str(r.id),
+    userId: str(r.userId),
+    total: num(r.total),
+    paymentMethod: str(r.paymentMethod),
+    amountPaid: num(r.amountPaid),
+    change: num(r.change),
+    date: date(r.date),
+    createdAt: date(r.created),
+    updatedAt: date(r.updated),
   }
 }
