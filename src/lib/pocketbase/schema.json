@@ -1,15 +1,15 @@
 {
-  "generatedAt": "2026-08-13T18:00:26.704Z",
+  "generatedAt": "2026-08-13T18:16:36.465Z",
   "collections": [
     {
       "name": "users",
       "type": "auth",
       "apiRules": {
-        "list": "id = @request.auth.id",
+        "list": null,
         "view": "id = @request.auth.id",
         "create": "",
         "update": "id = @request.auth.id",
-        "delete": "id = @request.auth.id"
+        "delete": null
       },
       "fields": [
         {
@@ -43,6 +43,427 @@
         "CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)",
         "CREATE UNIQUE INDEX `idx_email__pb_users_auth_` ON `users` (`email`) WHERE `email` != ''"
       ]
+    },
+    {
+      "name": "products",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "view": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "create": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "update": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && userId = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "userId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "barcode",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "price",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "ingredients",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "view": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "create": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "update": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && userId = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "userId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unit",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["kg", "g", "L", "mL", "unidade"]
+        },
+        {
+          "name": "currentStock",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "minStock",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "recipe_items",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "view": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "create": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "update": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && userId = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "userId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "productId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "products"
+        },
+        {
+          "name": "ingredientId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "ingredients"
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "purchases",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "view": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "create": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "update": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && userId = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "userId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "supplier",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "date",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "purchase_items",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "view": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "create": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "update": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && userId = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "userId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "purchaseId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "purchases"
+        },
+        {
+          "name": "ingredientId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "ingredients"
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unitCost",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "sales",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "view": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "create": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "update": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && userId = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "userId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "paymentMethod",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["dinheiro", "cartao", "pix"]
+        },
+        {
+          "name": "amountPaid",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "change",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "date",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "sale_items",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "view": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "create": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "update": "@request.auth.id != \"\" && userId = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && userId = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "userId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "saleId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "sales"
+        },
+        {
+          "name": "productId",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "products"
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unitPrice",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
     }
   ]
 }
