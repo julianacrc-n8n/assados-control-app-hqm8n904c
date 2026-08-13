@@ -6,12 +6,16 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Layout from '@/components/Layout'
 import { SpinnerFallback } from '@/components/SpinnerFallback'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import ProtectedRoute from '@/components/ProtectedRoute'
 
 const DashboardPage = lazy(() => import('@/pages/Dashboard'))
 const ProductsPage = lazy(() => import('@/pages/Products'))
 const PurchasesPage = lazy(() => import('@/pages/Purchases'))
 const PosPage = lazy(() => import('@/pages/Pos'))
 const ReportsPage = lazy(() => import('@/pages/Reports'))
+
+const LoginPage = lazy(() => import('@/pages/Login'))
+const SignupPage = lazy(() => import('@/pages/Signup'))
 
 const App = () => (
   <ErrorBoundary>
@@ -21,13 +25,21 @@ const App = () => (
         <Sonner />
         <Suspense fallback={<SpinnerFallback />}>
           <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/products" element={<ProductsPage />} />
-              <Route path="/purchases" element={<PurchasesPage />} />
-              <Route path="/pos" element={<PosPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
+            {/* Auth pages — public, no layout */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+
+            {/* Protected app routes — wrapped in ProtectedRoute, existing layout */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<Layout />}>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/products" element={<ProductsPage />} />
+                <Route path="/purchases" element={<PurchasesPage />} />
+                <Route path="/pos" element={<PosPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
+              </Route>
             </Route>
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
