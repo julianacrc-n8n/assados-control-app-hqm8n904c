@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 20% 98%;
+    --foreground: 30 15% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 15% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 15% 15%;
+    --primary: 32 75% 42%;
+    --primary-foreground: 40 30% 98%;
+    --secondary: 40 30% 92%;
+    --secondary-foreground: 30 15% 20%;
+    --muted: 40 15% 93%;
+    --muted-foreground: 30 10% 42%;
+    --accent: 38 75% 50%;
+    --accent-foreground: 30 15% 15%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 35 15% 88%;
+    --input: 35 15% 88%;
+    --ring: 32 75% 42%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 30 15% 7%;
+    --foreground: 40 20% 95%;
+    --card: 30 12% 11%;
+    --card-foreground: 40 20% 95%;
+    --popover: 30 12% 11%;
+    --popover-foreground: 40 20% 95%;
+    --primary: 32 70% 50%;
+    --primary-foreground: 30 15% 7%;
+    --secondary: 30 10% 18%;
+    --secondary-foreground: 40 20% 95%;
+    --muted: 30 10% 15%;
+    --muted-foreground: 40 10% 60%;
+    --accent: 38 60% 45%;
+    --accent-foreground: 40 20% 95%;
+    --destructive: 0 60% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 10% 20%;
+    --input: 30 10% 20%;
+    --ring: 32 70% 50%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+@layer utilities {
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+
+  .animate-accordion-down {
+    animation: accordion-down 0.2s ease-out;
+  }
+
+  .animate-accordion-up {
+    animation: accordion-up 0.2s ease-out;
+  }
+}
