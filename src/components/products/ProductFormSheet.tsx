@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle, Loader2 } from 'lucide-react'
 
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { CostBreakdown } from '@/components/products/CostBreakdown'
 import { RecipeEditor } from '@/components/products/RecipeEditor'
 import type { Ingredient, Product, RecipeItem } from '@/types'
 
@@ -95,6 +96,10 @@ export function ProductFormSheet({
   const [form, setForm] = useState<FormState>(emptyForm)
   const [errors, setErrors] = useState<{ name?: string; price?: string }>({})
   const [saving, setSaving] = useState(false)
+  const priceInputRef = useRef<HTMLInputElement>(null)
+
+  const priceNum = useMemo(() => parseFloat(form.price.replace(',', '.')), [form.price])
+  const priceForCost = Number.isFinite(priceNum) ? priceNum : 0
 
   // Sync form state whenever the sheet opens / target product changes.
   useEffect(() => {
@@ -234,6 +239,7 @@ export function ProductFormSheet({
               step={0.01}
               placeholder="0,00"
               value={form.price}
+              ref={priceInputRef}
               className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
               aria-invalid={!!errors.price}
               aria-describedby={errors.price ? 'product-price-error' : undefined}
@@ -298,6 +304,18 @@ export function ProductFormSheet({
               fetchRecipeItems={fetchRecipeItems}
               addRecipeItem={addRecipeItem}
               removeRecipeItem={removeRecipeItem}
+            />
+          )}
+
+          {/* Cost breakdown + margin simulator — only in edit mode and when
+              the product has at least one recipe_item. */}
+          {isEdit && product && recipeItems.length > 0 && (
+            <CostBreakdown
+              productId={product.id}
+              price={priceForCost}
+              recipeItems={recipeItems}
+              onApplyPrice={(value) => set('price', value)}
+              priceInputRef={priceInputRef}
             />
           )}
 

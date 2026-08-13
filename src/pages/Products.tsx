@@ -24,14 +24,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { PageHeader } from '@/components/PageHeader'
 import { DeleteProductDialog } from '@/components/products/DeleteProductDialog'
 import { ProductFormSheet } from '@/components/products/ProductFormSheet'
 import { useProducts } from '@/hooks/useProducts'
+import { useBatchProductCost } from '@/hooks/useBatchProductCost'
 import { useIngredients } from '@/hooks/useIngredients'
-import { formatBRL } from '@/lib/format'
+import { formatBRL, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { Product, RecipeItem } from '@/types'
+import type { CostSummary, Product, RecipeItem } from '@/types'
 
 const PAGE_SIZE = 20
 
@@ -123,6 +125,10 @@ export default function ProductsPage() {
     [filtered, currentPage],
   )
 
+  // Batch cost calculation for the currently visible (paginated) products.
+  // Recomputes when the page or search changes. Avoids N+1 queries.
+  const { productCosts, loading: costsLoading } = useBatchProductCost(paginated)
+
   // Load recipe items when the sheet opens for editing.
   useEffect(() => {
     if (!sheetOpen || !editingProduct) {
@@ -211,6 +217,12 @@ export default function ProductsPage() {
                     <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                       Preço de Venda
                     </TableHead>
+                    <TableHead className="hidden px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground md:table-cell">
+                      Custo
+                    </TableHead>
+                    <TableHead className="hidden px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground md:table-cell">
+                      Margem
+                    </TableHead>
                     <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                       Status
                     </TableHead>
@@ -225,6 +237,8 @@ export default function ProductsPage() {
                       key={product.id}
                       product={product}
                       flashing={flashId === product.id}
+                      costSummary={productCosts.get(product.id)}
+                      costsLoading={costsLoading}
                       onEdit={() => openEdit(product)}
                       onDelete={() => setDeleteTarget(product)}
                     />
@@ -239,6 +253,8 @@ export default function ProductsPage() {
                 <ProductCard
                   key={product.id}
                   product={product}
+                  costSummary={productCosts.get(product.id)}
+                  costsLoading={costsLoading}
                   onEdit={() => openEdit(product)}
                   onDelete={() => setDeleteTarget(product)}
                 />
@@ -314,11 +330,15 @@ export default function ProductsPage() {
 function ProductRow({
   product,
   flashing,
+  costSummary,
+  costsLoading,
   onEdit,
   onDelete,
 }: {
   product: Product
   flashing: boolean
+  costSummary?: CostSummary
+  costsLoading: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -337,6 +357,21 @@ function ProductRow({
       </TableCell>
       <TableCell className="tabular-nums px-4 align-middle font-medium">
         {formatBRL(product.price)}
+      </TableCell>
+      <TableCell className="hidden px-4 align-middle tabular-nums md:table-cell">
+        <CostCell
+          cost={costSummary?.totalCost ?? null}
+          hasPartialCost={costSummary?.hasPartialCost ?? false}
+          loading={costsLoading}
+          hasRecipe={costSummary !== undefined}
+        />
+      </TableCell>
+      <TableCell className="hidden px-4 align-middle tabular-nums md:table-cell">
+        <MarginCell
+          margin={costSummary?.margin ?? null}
+          loading={costsLoading}
+          hasRecipe={costSummary !== undefined}
+        />
       </TableCell>
       <TableCell className="px-4 align-middle">
         <StatusBadge active={product.active} />
@@ -369,10 +404,14 @@ function ProductRow({
 
 function ProductCard({
   product,
+  costSummary,
+  costsLoading,
   onEdit,
   onDelete,
 }: {
   product: Product
+  costSummary?: CostSummary
+  costsLoading: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -410,7 +449,105 @@ function ProductCard({
           </Button>
         </div>
       </div>
+      <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-muted-foreground">Custo</span>
+          <CostCell
+            cost={costSummary?.totalCost ?? null}
+            hasPartialCost={costSummary?.hasPartialCost ?? false}
+            loading={costsLoading}
+            hasRecipe={costSummary !== undefined}
+            asText
+          />
+        </div>
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-xs text-muted-foreground">Margem</span>
+          <MarginCell
+            margin={costSummary?.margin ?? null}
+            loading={costsLoading}
+            hasRecipe={costSummary !== undefined}
+            asText
+          />
+        </div>
+      </div>
     </div>
+  )
+}
+
+/* ---------------- Cost / margin cells ---------------- */
+
+function CostCell({
+  cost,
+  hasPartialCost,
+  loading,
+  hasRecipe,
+  asText,
+}: {
+  cost: number | null
+  hasPartialCost: boolean
+  loading: boolean
+  hasRecipe: boolean
+  asText?: boolean
+}) {
+  if (loading) {
+    return <Skeleton className={cn('rounded-md', asText ? 'h-5 w-20' : 'h-4 w-16')} />
+  }
+  if (!hasRecipe || cost === null) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  const value = (
+    <span className="inline-flex items-center gap-0.5 tabular-nums font-medium">
+      {formatBRL(cost)}
+      {hasPartialCost && <span className="text-[0.625rem] text-muted-foreground">*</span>}
+    </span>
+  )
+  if (!hasPartialCost) return value
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            tabIndex={0}
+            className="inline-flex cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 rounded-sm"
+          >
+            {value}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          Custo parcial: alguns insumos não tem preço de compra registrado.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+function MarginCell({
+  margin,
+  loading,
+  hasRecipe,
+  asText,
+}: {
+  margin: number | null
+  loading: boolean
+  hasRecipe: boolean
+  asText?: boolean
+}) {
+  if (loading) {
+    return <Skeleton className={cn('rounded-md', asText ? 'h-5 w-14' : 'h-4 w-12')} />
+  }
+  if (!hasRecipe || margin === null) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  const positive = margin >= 0
+  return (
+    <span
+      className={cn(
+        'tabular-nums font-medium',
+        positive ? 'text-emerald-600 dark:text-emerald-500' : 'text-destructive',
+      )}
+    >
+      {formatNumber(margin)}%
+    </span>
   )
 }
 
@@ -458,6 +595,12 @@ function ProductsTableSkeleton() {
             <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
               Preço de Venda
             </TableHead>
+            <TableHead className="hidden px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground md:table-cell">
+              Custo
+            </TableHead>
+            <TableHead className="hidden px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground md:table-cell">
+              Margem
+            </TableHead>
             <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
               Status
             </TableHead>
@@ -477,6 +620,12 @@ function ProductsTableSkeleton() {
               </TableCell>
               <TableCell className="px-4">
                 <Skeleton className="h-5 w-20 rounded-md" />
+              </TableCell>
+              <TableCell className="hidden px-4 md:table-cell">
+                <Skeleton className="h-5 w-16 rounded-md" />
+              </TableCell>
+              <TableCell className="hidden px-4 md:table-cell">
+                <Skeleton className="h-5 w-12 rounded-md" />
               </TableCell>
               <TableCell className="px-4">
                 <Skeleton className="h-5 w-16 rounded-full" />

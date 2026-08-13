@@ -188,3 +188,29 @@ export interface DashboardMetrics {
   totalProducts: number
   activeProducts: number
 }
+
+/**
+ * A single line of a product's production cost breakdown — one per
+ * recipe_item, enriched with the latest known unit cost for that ingredient.
+ */
+export interface CostLine {
+  ingredientId: string
+  ingredientName: string
+  unit: string
+  quantity: number
+  unitCost: number | null
+  lineCost: number | null
+}
+
+/** Aggregated cost summary for a product, used in the products table. */
+export interface CostSummary {
+  productId: string
+  totalCost: number | null
+  margin: number | null
+  /**
+   * True when the product has a recipe and at least one ingredient has a
+   * known cost but at least one other does not (partial cost). Used to show
+   * the asterisk + tooltip in the products table.
+   */
+  hasPartialCost?: boolean
+}
