@@ -56,8 +56,7 @@ function formatSaleDate(iso: string): string {
 /** Parse a pt-BR decimal string ("12,50") into a number. */
 function parseBRLNumber(value: string): number {
   if (!value) return 0
-  const normalized = value.replace(/\./g, '').replace(',', '.')
-  const n = parseFloat(normalized)
+  const n = parseFloat(value.replace(',', '.'))
   return Number.isFinite(n) ? n : 0
 }
 
