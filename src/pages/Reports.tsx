@@ -3,6 +3,7 @@ import {
   AlertCircle,
   BarChart3,
   Download,
+  FileText,
   Filter,
   Loader2,
   Receipt,
@@ -110,6 +111,259 @@ function escapeCsv(value: string): string {
     return `"${value.replace(/"/g, '""')}"`
   }
   return value
+}
+
+/* ------------------------------------------------------------------ */
+/* PDF export — print-optimized popup report                           */
+/* ------------------------------------------------------------------ */
+
+/** Format a number as Brazilian Real with the exact pt-BR representation. */
+function brl(value: number): string {
+  return formatBRL(value)
+}
+
+/** Format a 'YYYY-MM-DD' as 'DD/MM/YYYY' for the report header. */
+function brDate(ymd: string): string {
+  return formatBR(ymd)
+}
+
+/** Escape a string for safe insertion into raw HTML. */
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** Format the current date/time as "DD/MM/AAAA às HH:mm". */
+function generatedAt(): string {
+  const now = new Date()
+  const dd = String(now.getDate()).padStart(2, '0')
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const yyyy = now.getFullYear()
+  const hh = String(now.getHours()).padStart(2, '0')
+  const min = String(now.getMinutes()).padStart(2, '0')
+  return `${dd}/${mm}/${yyyy} às ${hh}:${min}`
+}
+
+/** Build the text-based bar chart HTML for the revenue vs expenses series. */
+function buildBarChartHtml(dailyRevenue: DailyPoint[], dailyExpenses: DailyPoint[]): string {
+  const hasData = dailyRevenue.some((p) => p.value > 0) || dailyExpenses.some((p) => p.value > 0)
+
+  if (!hasData) {
+    return '<div style="text-align:center;padding:12px;color:#777777;font-size:11px;">Sem dados de receitas e despesas no período.</div>'
+  }
+
+  const max = Math.max(0, ...dailyRevenue.map((p) => p.value), ...dailyExpenses.map((p) => p.value))
+  const maxSafe = max > 0 ? max : 1
+
+  let points = dailyRevenue.map((rev, i) => ({
+    label: rev.date,
+    revenue: rev.value,
+    expenses: dailyExpenses[i]?.value ?? 0,
+  }))
+
+  // If more than 15 data points, sample every Nth so the chart fits one page.
+  if (points.length > 15) {
+    const n = Math.ceil(points.length / 15)
+    points = points.filter((_, idx) => idx % n === 0)
+  }
+
+  const rows = points
+    .map((p) => {
+      const revW = Math.max((p.revenue / maxSafe) * 300, p.revenue > 0 ? 1 : 0)
+      const expW = Math.max((p.expenses / maxSafe) * 300, p.expenses > 0 ? 1 : 0)
+      return `
+      <div style="display:flex;align-items:center;margin-bottom:6px;">
+        <div style="width:50px;font-size:9px;color:#555555;flex-shrink:0;">${escapeHtml(p.label)}</div>
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;margin-bottom:2px;">
+            <div style="height:10px;background-color:#006600;width:${revW}px;border-radius:2px;"></div>
+            ${p.revenue > 0 ? `<span style="font-size:9px;color:#333333;margin-left:4px;">${brl(p.revenue)}</span>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;">
+            <div style="height:10px;background-color:#990000;width:${expW}px;border-radius:2px;"></div>
+            ${p.expenses > 0 ? `<span style="font-size:9px;color:#333333;margin-left:4px;">${brl(p.expenses)}</span>` : ''}
+          </div>
+        </div>
+      </div>`
+    })
+    .join('')
+
+  return `
+    <div style="page-break-inside:avoid;">
+      ${rows}
+      <div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:#555555;">
+        <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#006600;"></span>Receitas</span>
+        <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#990000;"></span>Despesas</span>
+      </div>
+    </div>`
+}
+
+/** Build the full self-contained HTML document for the printable report. */
+function buildReportHtml(data: ReportData, start: string, end: string): string {
+  const profit = data.totalProfit
+  const profitColor = profit > 0 ? '#006600' : profit < 0 ? '#990000' : '#333333'
+
+  const payTotal =
+    data.paymentBreakdown.dinheiro + data.paymentBreakdown.cartao + data.paymentBreakdown.pix
+  const payEmpty = payTotal <= 0
+  const paymentRow = payEmpty
+    ? `<tr><td colspan="3" style="padding:12px;text-align:center;color:#777777;font-size:11px;">Sem vendas no período.</td></tr>`
+    : `<tr>
+        <td style="padding:8px 10px;text-align:center;font-size:12px;">
+          ${brl(data.paymentBreakdown.dinheiro)}<br/>
+          <span style="font-size:10px;color:#777777;">(${formatPercent(data.paymentBreakdown.dinheiro, payTotal)})</span>
+        </td>
+        <td style="padding:8px 10px;text-align:center;font-size:12px;">
+          ${brl(data.paymentBreakdown.cartao)}<br/>
+          <span style="font-size:10px;color:#777777;">(${formatPercent(data.paymentBreakdown.cartao, payTotal)})</span>
+        </td>
+        <td style="padding:8px 10px;text-align:center;font-size:12px;">
+          ${brl(data.paymentBreakdown.pix)}<br/>
+          <span style="font-size:10px;color:#777777;">(${formatPercent(data.paymentBreakdown.pix, payTotal)})</span>
+        </td>
+      </tr>`
+
+  const chartHtml = buildBarChartHtml(data.dailyRevenue, data.dailyExpenses)
+
+  const productsHtml =
+    data.topProducts.length === 0
+      ? `<tr><td colspan="4" style="padding:12px;text-align:center;color:#777777;font-size:11px;">Nenhum produto vendido no período.</td></tr>`
+      : data.topProducts
+          .map(
+            (p, idx) => `
+        <tr style="background-color:${idx % 2 === 1 ? '#F9F9F9' : '#FFFFFF'};">
+          <td style="padding:6px 10px;text-align:center;font-weight:700;color:#333333;font-size:11px;width:30px;">${idx + 1}</td>
+          <td style="padding:6px 10px;text-align:left;font-size:11px;">${escapeHtml(p.productName)}</td>
+          <td style="padding:6px 10px;text-align:center;font-variant-numeric:tabular-nums;font-size:11px;">${formatNumber(p.quantitySold)}</td>
+          <td style="padding:6px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;font-size:11px;">${brl(p.totalRevenue)}</td>
+        </tr>`,
+          )
+          .join('')
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Relatório Financeiro — Assados Control</title>
+<style>
+  @page { size: A4; margin: 15mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    color: #000000;
+    background: #ffffff;
+    line-height: 1.5;
+    padding: 0;
+    margin: 0;
+  }
+  h2 { margin: 0; }
+  table { width: 100%; border-collapse: collapse; border: 1px solid #CCCCCC; }
+  .section-title { font-size: 14px; font-weight: 700; margin-top: 16px; margin-bottom: 8px; }
+  .avoid-break { page-break-inside: avoid; }
+  th { background: #333333; color: #ffffff; font-weight: 600; font-size: 11px; padding: 6px 10px; text-align: center; }
+  .header { border-bottom: 2px solid #333333; padding-bottom: 12px; margin-bottom: 4px; }
+  .footer { border-top: 2px solid #333333; margin-top: 20px; padding-top: 8px; }
+  .footer-row { display: flex; justify-content: space-between; }
+  .footer-center { text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:4px;">Assados Control</div>
+    <div style="font-size:14px;font-weight:600;text-align:center;color:#555555;margin-bottom:8px;">Relatório Financeiro</div>
+    <div style="font-size:11px;text-align:center;color:#777777;margin-bottom:16px;">Período: ${brDate(start)} a ${brDate(end)}</div>
+    <div style="font-size:10px;text-align:right;color:#999999;margin-bottom:16px;">Gerado em: ${generatedAt()}</div>
+  </div>
+
+  <div class="avoid-break">
+    <div class="section-title">Resumo Financeiro</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Receita Total</th>
+          <th>Despesa Total</th>
+          <th>Lucro</th>
+          <th>Ticket Médio</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:#006600;">${brl(data.totalRevenue)}</td>
+          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:#990000;">${brl(data.totalExpenses)}</td>
+          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:${profitColor};">${brl(data.totalProfit)}</td>
+          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:#333333;">${brl(data.averageTicket)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="font-size:10px;color:#777777;margin-top:4px;">Total de vendas: ${data.salesCount} | Total de compras: ${data.purchasesCount}</div>
+  </div>
+
+  <div class="avoid-break">
+    <div class="section-title">Formas de Pagamento</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Dinheiro</th>
+          <th>Cartão</th>
+          <th>Pix</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${paymentRow}
+      </tbody>
+    </table>
+  </div>
+
+  <div>
+    <div class="section-title">Receitas vs Despesas por Dia</div>
+    ${chartHtml}
+  </div>
+
+  <div class="avoid-break">
+    <div class="section-title">Produtos Mais Vendidos</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:center;width:30px;">#</th>
+          <th style="text-align:left;">Produto</th>
+          <th style="text-align:center;">Quantidade Vendida</th>
+          <th style="text-align:right;">Receita Gerada</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${productsHtml}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    <div class="footer-row">
+      <span style="font-size:9px;color:#999999;">Assados Control - Sistema de Gestão</span>
+      <span style="font-size:9px;color:#999999;text-align:right;">Página 1 de 1</span>
+    </div>
+    <div class="footer-center" style="font-size:9px;color:#BBBBBB;">Documento gerado automaticamente pelo sistema.</div>
+  </div>
+
+  <script>
+    setTimeout(function () { window.print(); }, 250);
+  </script>
+</body>
+</html>`
+}
+
+function exportReportPdf(data: ReportData, start: string, end: string): boolean {
+  const html = buildReportHtml(data, start, end)
+  const printWin = window.open('', '_blank', 'width=900,height=1200')
+  if (!printWin) return false
+  printWin.document.open()
+  printWin.document.write(html)
+  printWin.document.close()
+  return true
 }
 
 /* ------------------------------------------------------------------ */
@@ -862,6 +1116,21 @@ export default function ReportsPage() {
     toast({ title: 'Relatório exportado com sucesso.' })
   }
 
+  const handleExportPdf = () => {
+    if (!reportData) return
+    if (reportData.salesCount === 0 && reportData.purchasesCount === 0) return
+    const ok = exportReportPdf(reportData, activeStart, activeEnd)
+    if (!ok) {
+      toast({
+        variant: 'destructive',
+        title: 'Não foi possível abrir a janela de impressão.',
+        description: 'Permita popups para este site.',
+      })
+      return
+    }
+    toast({ title: 'Abrindo janela de impressão...' })
+  }
+
   const isEmpty =
     !loading &&
     !error &&
@@ -1001,6 +1270,7 @@ export default function ReportsPage() {
           end={activeEnd}
           profitColor={profitColor}
           onExport={handleExport}
+          onExportPdf={handleExportPdf}
         />
       )}
     </section>
@@ -1046,9 +1316,10 @@ interface ReportsBodyProps {
   end: string
   profitColor: string
   onExport: () => void
+  onExportPdf: () => void
 }
 
-function ReportsBody({ data, loading, profitColor, onExport }: ReportsBodyProps) {
+function ReportsBody({ data, loading, profitColor, onExport, onExportPdf }: ReportsBodyProps) {
   const profit = data?.totalProfit ?? 0
   const profitIconContainer =
     profit > 0
@@ -1158,6 +1429,25 @@ function ReportsBody({ data, loading, profitColor, onExport }: ReportsBodyProps)
           >
             <Download className="h-4 w-4" />
             Exportar CSV
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10 gap-2 px-4 text-[0.8125rem] font-medium hover:bg-muted/30 hover:border-ring/40 focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
+            onClick={onExportPdf}
+            disabled={loading || !data || (data.salesCount === 0 && data.purchasesCount === 0)}
+            aria-label="Exportar relatório completo em PDF"
+            title={
+              !data || (data.salesCount === 0 && data.purchasesCount === 0)
+                ? 'Gere um relatório com dados primeiro'
+                : undefined
+            }
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            Exportar PDF
           </Button>
         </div>
         <div>
