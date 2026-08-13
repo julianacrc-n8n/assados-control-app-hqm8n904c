@@ -5,9 +5,11 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle }: PageHeaderProps) {
   return (
-    <div className="mb-6 space-y-1">
-      <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">{title}</h1>
-      <p className="text-sm md:text-base text-muted-foreground">{subtitle}</p>
+    <div>
+      <h1 className="text-3xl font-bold text-foreground" style={{ letterSpacing: '-0.025em' }}>
+        {title}
+      </h1>
+      <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
     </div>
   )
 }

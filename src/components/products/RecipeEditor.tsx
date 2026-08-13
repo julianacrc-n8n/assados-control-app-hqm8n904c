@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { ChefHat, Loader2, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, ChefHat, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { formatNumber } from '@/lib/format'
 import type { Ingredient, RecipeItem } from '@/types'
 
@@ -121,33 +120,45 @@ export function RecipeEditor({
   const noIngredients = ingredients.length === 0 && !ingredientsLoading
 
   return (
-    <div className="space-y-4">
-      <Separator />
+    <div>
+      <div className="mt-6 border-t border-border" />
 
-      <div className="space-y-1">
-        <h3 className="text-base font-semibold text-foreground">Receita do Produto</h3>
-        <p className="text-sm text-muted-foreground">
+      <div className="mb-4 mt-6">
+        <h3 className="text-base font-bold text-foreground">Receita do Produto</h3>
+        <p className="mt-1 text-[0.8125rem] text-muted-foreground">
           Defina os insumos e quantidades que compõem este produto. Estas quantidades são usadas
           para baixar o estoque automaticamente a cada venda.
         </p>
       </div>
 
       {noIngredients && (
-        <div className="rounded-lg border border-amber-300/60 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
-          Você ainda não cadastrou nenhum insumo.{' '}
-          <Link to="/purchases" className="font-semibold underline underline-offset-4">
-            Acesse a página de Compras para registrar insumos.
-          </Link>
+        <div
+          className="mb-4 flex items-center gap-2 rounded-[var(--radius)] px-4 py-3"
+          style={{
+            backgroundColor: 'hsl(var(--destructive) / 0.1)',
+            border: '1px solid hsl(var(--destructive) / 0.3)',
+          }}
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+          <p className="text-[0.8125rem] text-foreground">
+            Você ainda não cadastrou nenhum insumo.{' '}
+            <Link
+              to="/purchases"
+              className="font-medium text-accent-foreground underline underline-offset-4"
+            >
+              Acesse a página de Compras para registrar insumos.
+            </Link>
+          </p>
         </div>
       )}
 
       {recipeItems.length === 0 && !noIngredients ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center">
-          <ChefHat className="h-8 w-8 text-muted-foreground mb-2" />
+        <div className="flex flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border p-6 text-center">
+          <ChefHat className="mb-2 h-8 w-8 text-muted-foreground" />
           <p className="text-sm font-medium text-foreground">
             Nenhum insumo vinculado a este produto.
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="mt-1 text-xs text-muted-foreground">
             Adicione insumos abaixo para definir a receita.
           </p>
         </div>
@@ -155,7 +166,7 @@ export function RecipeEditor({
 
       {/* Existing recipe items */}
       {recipeItems.length > 0 && (
-        <ul className="space-y-2">
+        <ul className="space-y-0">
           {recipeItems.map((item) => {
             const ing = ingredientById.get(item.ingredientId)
             const unit = ing?.unit ?? ''
@@ -163,11 +174,11 @@ export function RecipeEditor({
             return (
               <li
                 key={item.id}
-                className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2"
+                className="mb-2 flex items-center justify-between gap-3 rounded-[var(--radius)] border border-border bg-card px-4 py-3"
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">{name}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="tabular-nums text-sm text-muted-foreground">
                     {formatNumber(item.quantity)} {unit}
                   </p>
                 </div>
@@ -175,7 +186,7 @@ export function RecipeEditor({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-11 w-11 shrink-0 text-muted-foreground hover:text-destructive"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
                   aria-label="Remover insumo"
                   disabled={removingId === item.id}
                   onClick={() => void handleRemove(item.id)}
@@ -194,9 +205,12 @@ export function RecipeEditor({
 
       {/* Add row */}
       {!noIngredients && (
-        <div className="flex flex-col gap-2 md:flex-row md:items-end">
-          <div className="flex-1 space-y-1.5">
-            <label className="text-sm font-medium text-foreground" htmlFor="recipe-ingredient">
+        <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-end">
+          <div className="flex-1">
+            <label
+              className="mb-2 block text-sm font-medium text-foreground"
+              htmlFor="recipe-ingredient"
+            >
               Insumo
             </label>
             {availableIngredients.length === 0 ? (
@@ -223,32 +237,34 @@ export function RecipeEditor({
           </div>
 
           <div className="flex items-end gap-2">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground" htmlFor="recipe-quantity">
+            <div className="w-full md:w-[120px]">
+              <label
+                className="mb-2 block text-sm font-medium text-foreground"
+                htmlFor="recipe-quantity"
+              >
                 Quantidade
               </label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="recipe-quantity"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step={0.01}
-                  placeholder="Quantidade"
-                  className="h-11 w-28"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  disabled={adding || availableIngredients.length === 0}
-                />
-                <span className="w-16 text-sm text-muted-foreground">
-                  {selectedIngredient?.unit ?? ''}
-                </span>
-              </div>
+              <Input
+                id="recipe-quantity"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step={0.01}
+                placeholder="Quantidade"
+                className="h-11 w-full"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                disabled={adding || availableIngredients.length === 0}
+              />
             </div>
+
+            <span className="pb-2.5 text-sm text-muted-foreground">
+              {selectedIngredient?.unit ?? ''}
+            </span>
 
             <Button
               type="button"
-              className="h-11"
+              className="h-11 px-4"
               disabled={!canAdd}
               onClick={() => void handleAdd()}
             >

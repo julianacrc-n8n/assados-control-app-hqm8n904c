@@ -86,4 +86,22 @@
   .animate-accordion-up {
     animation: accordion-up 0.2s ease-out;
   }
+
+  @keyframes row-flash {
+    0% {
+      opacity: 0;
+    }
+    20% {
+      opacity: 1;
+      background-color: hsl(var(--accent) / 0.1);
+    }
+    100% {
+      opacity: 1;
+      background-color: transparent;
+    }
+  }
+
+  .animate-row-flash {
+    animation: row-flash 600ms ease-out;
+  }
 }

@@ -43,16 +43,16 @@ export function DeleteProductDialog({ open, onOpenChange, onDelete }: DeleteProd
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Excluir produto</AlertDialogTitle>
-          <AlertDialogDescription>
+      <AlertDialogContent className="max-w-[400px] gap-0 rounded-[var(--radius)] p-6 shadow-xl">
+        <AlertDialogHeader className="space-y-0">
+          <AlertDialogTitle className="text-lg font-bold">Excluir produto</AlertDialogTitle>
+          <AlertDialogDescription className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Tem certeza que deseja excluir este produto? Esta ação não pode ser desfeita. As
             receitas vinculadas também serão removidas.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleting} className="h-11">
+        <AlertDialogFooter className="mt-6 flex-row gap-3 sm:space-x-0">
+          <AlertDialogCancel disabled={deleting} className="h-11 sm:mt-0">
             Cancelar
           </AlertDialogCancel>
           <AlertDialogAction

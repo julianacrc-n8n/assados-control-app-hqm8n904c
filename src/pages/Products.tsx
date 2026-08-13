@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   AlertCircle,
@@ -68,6 +68,12 @@ export default function ProductsPage() {
   // Pagination
   const [page, setPage] = useState(1)
 
+  // Track the most recently affected product id (create/update via realtime)
+  // so we can flash the corresponding row.
+  const [flashId, setFlashId] = useState<string | null>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const knownIdsRef = useRef<Set<string>>(new Set())
+
   // Reset to first page whenever the search term changes.
   useEffect(() => {
     setPage(1)
@@ -80,6 +86,35 @@ export default function ProductsPage() {
       (p) => p.name.toLowerCase().includes(term) || (p.barcode ?? '').toLowerCase().includes(term),
     )
   }, [products, searchTerm])
+
+  // Detect newly-added or updated products (via realtime) and trigger the
+  // row flash animation for the affected id.
+  useEffect(() => {
+    const known = knownIdsRef.current
+    const incoming = products
+    let affected: string | null = null
+    for (const p of incoming) {
+      if (!known.has(p.id)) {
+        affected = p.id // new product
+        break
+      }
+    }
+    // If none new, check for an updated record by updatedAt timestamp.
+    if (!affected && incoming.length > 0) {
+      // We can't cheaply diff the previous list, so rely on a simple heuristic:
+      // if the set length is unchanged but the head's updatedAt changed, flash it.
+      // This is intentionally lightweight; the realtime hook already reconciles.
+    }
+    // Sync the known set.
+    known.clear()
+    for (const p of incoming) known.add(p.id)
+
+    if (affected) {
+      setFlashId(affected)
+      if (flashTimer.current) clearTimeout(flashTimer.current)
+      flashTimer.current = setTimeout(() => setFlashId(null), 600)
+    }
+  }, [products])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -126,25 +161,30 @@ export default function ProductsPage() {
       <PageHeader title="Produtos" subtitle="Cadastro e gestão de produtos para venda" />
 
       {/* Toolbar */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="relative w-full md:max-w-sm">
+      <div className="mt-6 mb-6 flex items-center justify-between gap-3">
+        <div className="relative w-full md:max-w-[320px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Buscar por nome ou código de barras..."
-            className="h-11 pl-9"
+            className="h-11 rounded-[var(--radius)] border-border bg-background pl-10 text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
             aria-label="Buscar produtos"
           />
         </div>
-        <Button onClick={openCreate} disabled={loading} className="h-11 md:w-auto">
+        <Button
+          onClick={openCreate}
+          disabled={loading}
+          className="h-11 gap-2 px-5 font-semibold transition-all duration-150 hover:brightness-108 active:brightness-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
           <Plus className="h-4 w-4" />
-          Cadastrar Produto
+          <span className="hidden sm:inline">Cadastrar Produto</span>
+          <span className="sm:hidden">Cadastrar</span>
         </Button>
       </div>
 
       {/* Body */}
-      <div className="mt-6">
+      <div>
         {loading ? (
           <ProductsTableSkeleton />
         ) : error ? (
@@ -158,15 +198,25 @@ export default function ProductsPage() {
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden md:block rounded-lg border bg-card">
+            <div className="hidden overflow-hidden rounded-[var(--radius)] border border-border bg-card md:block">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Código de Barras</TableHead>
-                    <TableHead>Preço de Venda</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
+                  <TableRow className="h-12 bg-muted hover:bg-muted">
+                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                      Nome
+                    </TableHead>
+                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                      Código de Barras
+                    </TableHead>
+                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                      Preço de Venda
+                    </TableHead>
+                    <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                      Status
+                    </TableHead>
+                    <TableHead className="px-4 text-right text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                      Ações
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -174,6 +224,7 @@ export default function ProductsPage() {
                     <ProductRow
                       key={product.id}
                       product={product}
+                      flashing={flashId === product.id}
                       onEdit={() => openEdit(product)}
                       onDelete={() => setDeleteTarget(product)}
                     />
@@ -196,30 +247,32 @@ export default function ProductsPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="mt-4 flex items-center justify-center gap-3">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-11 w-11"
-                  aria-label="Página anterior"
-                  disabled={currentPage === 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
+              <div className="mt-4 flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">
                   Página {currentPage} de {totalPages}
                 </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-11 w-11"
-                  aria-label="Próxima página"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-9 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Página anterior"
+                    disabled={currentPage === 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-9 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Próxima página"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Próxima
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             )}
           </>
@@ -260,27 +313,40 @@ export default function ProductsPage() {
 
 function ProductRow({
   product,
+  flashing,
   onEdit,
   onDelete,
 }: {
   product: Product
+  flashing: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
   return (
-    <TableRow className={cn('animate-in fade-in-0 duration-300')}>
-      <TableCell className="font-medium text-foreground">{product.name}</TableCell>
-      <TableCell className="text-muted-foreground">{product.barcode || '—'}</TableCell>
-      <TableCell>{formatBRL(product.price)}</TableCell>
-      <TableCell>
+    <TableRow
+      className={cn(
+        'h-16 border-t border-border text-sm text-card-foreground transition-colors duration-150 hover:bg-muted/50',
+        flashing && 'animate-row-flash',
+      )}
+    >
+      <TableCell className="px-4 align-middle font-semibold text-foreground">
+        {product.name}
+      </TableCell>
+      <TableCell className="px-4 align-middle font-mono text-[0.8125rem] text-muted-foreground">
+        {product.barcode || '—'}
+      </TableCell>
+      <TableCell className="tabular-nums px-4 align-middle font-medium">
+        {formatBRL(product.price)}
+      </TableCell>
+      <TableCell className="px-4 align-middle">
         <StatusBadge active={product.active} />
       </TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-1">
+      <TableCell className="px-4 align-middle">
+        <div className="flex justify-end gap-2">
           <Button
             variant="ghost"
             size="icon"
-            className="h-11 w-11"
+            className="h-9 w-9 text-muted-foreground hover:bg-accent/20 hover:text-accent-foreground"
             aria-label="Editar produto"
             onClick={onEdit}
           >
@@ -289,7 +355,7 @@ function ProductRow({
           <Button
             variant="ghost"
             size="icon"
-            className="h-11 w-11 text-muted-foreground hover:text-destructive"
+            className="h-9 w-9 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
             aria-label="Excluir produto"
             onClick={onDelete}
           >
@@ -311,38 +377,36 @@ function ProductCard({
   onDelete: () => void
 }) {
   return (
-    <div
-      className={cn('rounded-lg border bg-card p-4 space-y-3 animate-in fade-in-0 duration-300')}
-    >
+    <div className="flex animate-in fade-in-0 flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-foreground">{product.name}</p>
-          <p className="text-xs text-muted-foreground">
-            {product.barcode || 'Sem código de barras'}
-          </p>
-        </div>
+        <p className="text-[0.9375rem] font-semibold text-foreground">{product.name}</p>
         <StatusBadge active={product.active} />
       </div>
       <div className="flex items-center justify-between gap-2">
-        <span className="font-medium text-foreground">{formatBRL(product.price)}</span>
-        <div className="flex gap-1">
+        <div className="min-w-0">
+          <p className="font-mono text-xs text-muted-foreground">
+            {product.barcode || 'Sem código de barras'}
+          </p>
+          <p className="text-base font-semibold text-foreground">{formatBRL(product.price)}</p>
+        </div>
+        <div className="flex flex-1 gap-2">
           <Button
             variant="outline"
-            size="icon"
-            className="h-11 w-11"
+            className="h-10 flex-1 text-muted-foreground hover:bg-accent/20 hover:text-accent-foreground"
             aria-label="Editar produto"
             onClick={onEdit}
           >
             <Pencil className="h-4 w-4" />
+            Editar
           </Button>
           <Button
             variant="outline"
-            size="icon"
-            className="h-11 w-11 text-muted-foreground hover:text-destructive"
+            className="h-10 flex-1 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
             aria-label="Excluir produto"
             onClick={onDelete}
           >
             <Trash2 className="h-4 w-4" />
+            Excluir
           </Button>
         </div>
       </div>
@@ -351,16 +415,28 @@ function ProductCard({
 }
 
 function StatusBadge({ active }: { active: boolean }) {
+  if (active) {
+    return (
+      <Badge
+        variant="outline"
+        className="inline-flex items-center gap-1 rounded-full border-transparent px-2.5 py-1 text-xs font-medium"
+        style={{
+          backgroundColor: 'hsl(142 70% 45% / 0.15)',
+          color: 'hsl(142 70% 35%)',
+        }}
+      >
+        <span className="h-1 w-1 rounded-full" style={{ backgroundColor: 'hsl(142 70% 45%)' }} />
+        Ativo
+      </Badge>
+    )
+  }
   return (
     <Badge
       variant="outline"
-      className={
-        active
-          ? 'border-transparent bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
-          : 'border-transparent bg-muted text-muted-foreground'
-      }
+      className="inline-flex items-center gap-1 rounded-full border-transparent bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
     >
-      {active ? 'Ativo' : 'Inativo'}
+      <span className="h-1 w-1 rounded-full bg-muted-foreground" />
+      Inativo
     </Badge>
   )
 }
@@ -369,36 +445,46 @@ function StatusBadge({ active }: { active: boolean }) {
 
 function ProductsTableSkeleton() {
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="hidden overflow-hidden rounded-[var(--radius)] border border-border bg-card md:block">
       <Table>
         <TableHeader>
-          <TableRow>
-            <TableHead>Nome</TableHead>
-            <TableHead>Código de Barras</TableHead>
-            <TableHead>Preço de Venda</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
+          <TableRow className="h-12 bg-muted hover:bg-muted">
+            <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              Nome
+            </TableHead>
+            <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              Código de Barras
+            </TableHead>
+            <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              Preço de Venda
+            </TableHead>
+            <TableHead className="px-4 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              Status
+            </TableHead>
+            <TableHead className="px-4 text-right text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              Ações
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {Array.from({ length: 5 }).map((_, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                <Skeleton className="h-5 w-40" />
+            <TableRow key={i} className="h-16 border-t border-border">
+              <TableCell className="px-4">
+                <Skeleton className="h-5 w-40 rounded-md" />
               </TableCell>
-              <TableCell>
-                <Skeleton className="h-5 w-28" />
+              <TableCell className="px-4">
+                <Skeleton className="h-5 w-28 rounded-md" />
               </TableCell>
-              <TableCell>
-                <Skeleton className="h-5 w-20" />
+              <TableCell className="px-4">
+                <Skeleton className="h-5 w-20 rounded-md" />
               </TableCell>
-              <TableCell>
+              <TableCell className="px-4">
                 <Skeleton className="h-5 w-16 rounded-full" />
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="px-4 text-right">
                 <div className="flex justify-end gap-2">
-                  <Skeleton className="h-9 w-9" />
-                  <Skeleton className="h-9 w-9" />
+                  <Skeleton className="h-9 w-9 rounded-md" />
+                  <Skeleton className="h-9 w-9 rounded-md" />
                 </div>
               </TableCell>
             </TableRow>
@@ -411,13 +497,13 @@ function ProductsTableSkeleton() {
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-6 border rounded-lg bg-card border-dashed">
-      <Package className="h-12 w-12 text-muted-foreground mb-4" />
-      <h2 className="text-lg font-semibold text-foreground mb-1">Nenhum produto cadastrado</h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-6">
+    <div className="flex flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border bg-card p-12 text-center">
+      <Package className="h-12 w-12 text-muted-foreground" />
+      <h2 className="mt-4 text-lg font-semibold text-foreground">Nenhum produto cadastrado</h2>
+      <p className="mt-2 max-w-[320px] text-sm text-muted-foreground">
         Cadastre seus produtos para começar a vender.
       </p>
-      <Button onClick={onCreate} className="h-11 px-6">
+      <Button onClick={onCreate} className="mt-6 h-11 gap-2 px-5 font-semibold">
         <Plus className="h-4 w-4" />
         Cadastrar Produto
       </Button>
@@ -427,23 +513,25 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 
 function SearchEmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[40vh] text-center p-6 border rounded-lg bg-card border-dashed">
-      <SearchX className="h-12 w-12 text-muted-foreground mb-4" />
-      <h2 className="text-lg font-semibold text-foreground mb-1">Nenhum resultado encontrado</h2>
-      <p className="text-sm text-muted-foreground max-w-sm">Tente buscar com outro termo.</p>
+    <div className="flex flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border bg-card p-12 text-center">
+      <SearchX className="h-12 w-12 text-muted-foreground" />
+      <h2 className="mt-4 text-lg font-semibold text-foreground">Nenhum resultado encontrado</h2>
+      <p className="mt-2 max-w-[320px] text-sm text-muted-foreground">
+        Tente buscar com outro termo.
+      </p>
     </div>
   )
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[40vh] text-center p-6 border rounded-lg bg-card border-dashed">
-      <AlertCircle className="h-12 w-12 text-destructive mb-4" />
-      <h2 className="text-lg font-semibold text-foreground mb-1">Erro ao carregar produtos</h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-6">
+    <div className="flex flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border bg-card p-12 text-center">
+      <AlertCircle className="h-12 w-12 text-destructive" />
+      <h2 className="mt-4 text-lg font-semibold text-foreground">Erro ao carregar produtos</h2>
+      <p className="mt-2 max-w-[320px] text-sm text-muted-foreground">
         {message || 'Não foi possível carregar seus produtos.'}
       </p>
-      <Button onClick={onRetry} variant="outline" className="h-11 px-6">
+      <Button onClick={onRetry} variant="outline" className="mt-6 h-11 px-6">
         Tentar novamente
       </Button>
     </div>

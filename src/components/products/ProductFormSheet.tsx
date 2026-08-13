@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,6 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
@@ -152,20 +151,27 @@ export function ProductFormSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto p-6">
-        <SheetHeader>
-          <SheetTitle>{title}</SheetTitle>
-          <SheetDescription>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-[480px]">
+        <SheetHeader className="flex flex-col space-y-0 border-b border-border p-6">
+          <SheetTitle className="text-lg font-bold">{title}</SheetTitle>
+          <SheetDescription className="mt-1 text-sm text-muted-foreground">
             {isEdit
               ? 'Edite as informações do produto e sua receita.'
               : 'Preencha as informações do novo produto.'}
           </SheetDescription>
         </SheetHeader>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+        <form
+          onSubmit={handleSubmit}
+          className="flex-1 overflow-y-auto p-6"
+          style={{ maxHeight: 'calc(100vh - 8rem)' }}
+        >
           {/* Name */}
-          <div className="space-y-1.5">
-            <Label htmlFor="product-name">
+          <div className="mb-5">
+            <Label
+              htmlFor="product-name"
+              className="mb-2 block text-sm font-medium text-foreground"
+            >
               Nome <span className="text-destructive">*</span>
             </Label>
             <Input
@@ -173,37 +179,51 @@ export function ProductFormSheet({
               value={form.name}
               maxLength={200}
               placeholder="Ex: Pão Francês"
+              className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
               aria-invalid={!!errors.name}
               aria-describedby={errors.name ? 'product-name-error' : undefined}
               disabled={saving}
               onChange={(e) => set('name', e.target.value)}
             />
             {errors.name && (
-              <p id="product-name-error" className="text-xs text-destructive">
+              <p
+                id="product-name-error"
+                className="mt-1.5 flex items-center gap-1 text-xs text-destructive"
+              >
+                <AlertCircle className="h-3 w-3" />
                 {errors.name}
               </p>
             )}
           </div>
 
           {/* Barcode */}
-          <div className="space-y-1.5">
-            <Label htmlFor="product-barcode">Código de Barras</Label>
+          <div className="mb-5">
+            <Label
+              htmlFor="product-barcode"
+              className="mb-2 block text-sm font-medium text-foreground"
+            >
+              Código de Barras
+            </Label>
             <Input
               id="product-barcode"
               value={form.barcode}
               maxLength={100}
               placeholder="Ex: 7891234567890"
+              className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
               disabled={saving}
               onChange={(e) => set('barcode', e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="mt-1.5 text-xs text-muted-foreground">
               Use o leitor de barras para preencher ou digite manualmente.
             </p>
           </div>
 
           {/* Price */}
-          <div className="space-y-1.5">
-            <Label htmlFor="product-price">
+          <div className="mb-5">
+            <Label
+              htmlFor="product-price"
+              className="mb-2 block text-sm font-medium text-foreground"
+            >
               Preço de Venda (R$) <span className="text-destructive">*</span>
             </Label>
             <Input
@@ -214,33 +234,44 @@ export function ProductFormSheet({
               step={0.01}
               placeholder="0,00"
               value={form.price}
+              className="h-11 rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
               aria-invalid={!!errors.price}
               aria-describedby={errors.price ? 'product-price-error' : undefined}
               disabled={saving}
               onChange={(e) => set('price', e.target.value)}
             />
             {errors.price && (
-              <p id="product-price-error" className="text-xs text-destructive">
+              <p
+                id="product-price-error"
+                className="mt-1.5 flex items-center gap-1 text-xs text-destructive"
+              >
+                <AlertCircle className="h-3 w-3" />
                 {errors.price}
               </p>
             )}
           </div>
 
           {/* Description */}
-          <div className="space-y-1.5">
-            <Label htmlFor="product-description">Descrição</Label>
+          <div className="mb-5">
+            <Label
+              htmlFor="product-description"
+              className="mb-2 block text-sm font-medium text-foreground"
+            >
+              Descrição
+            </Label>
             <Textarea
               id="product-description"
               value={form.description}
               maxLength={500}
               placeholder="Ex: Pão crocante feito com fermentação natural."
+              className="rounded-[var(--radius)] border-input bg-background text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
               disabled={saving}
               onChange={(e) => set('description', e.target.value)}
             />
           </div>
 
           {/* Active */}
-          <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+          <div className="mb-5 flex items-start justify-between gap-4 rounded-[var(--radius)] border border-border p-4">
             <div className="space-y-0.5">
               <Label htmlFor="product-active" className="cursor-pointer">
                 Produto ativo
@@ -270,17 +301,17 @@ export function ProductFormSheet({
             />
           )}
 
-          <SheetFooter className="flex-row gap-2 pt-2 sm:justify-end">
+          <div className="mt-6 flex justify-end gap-3">
             <Button
               type="button"
               variant="outline"
-              className="h-11"
+              className="h-11 px-6"
               disabled={saving}
               onClick={() => onOpenChange(false)}
             >
               Cancelar
             </Button>
-            <Button type="submit" className="h-11" disabled={saving}>
+            <Button type="submit" className="h-11 px-6" disabled={saving}>
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -292,7 +323,7 @@ export function ProductFormSheet({
                 'Salvar'
               )}
             </Button>
-          </SheetFooter>
+          </div>
         </form>
       </SheetContent>
     </Sheet>
