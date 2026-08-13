@@ -74,8 +74,12 @@ export function useProducts(): UseProducts {
     'products',
     (e: RecordSubscription<RecordModel>) => {
       if (!mountedRef.current) return
-      // Only react to create/update events (delete is handled locally).
-      if (e.action !== 'create' && e.action !== 'update') return
+      // Only react to create/update/delete events.
+      if (e.action !== 'create' && e.action !== 'update' && e.action !== 'delete') return
+      if (e.action === 'delete') {
+        setProducts((prev) => prev.filter((p) => p.id !== e.record.id))
+        return
+      }
       const record = mapProduct(e.record)
       setProducts((prev) => {
         const idx = prev.findIndex((p) => p.id === record.id)
@@ -102,22 +106,24 @@ export function useProducts(): UseProducts {
   }, [load])
 
   const createProduct = useCallback(async (input: ProductInput) => {
-    const created = await createProductService(input)
-    // Optimistic local update so the UI reflects the change immediately even
-    // before the realtime event round-trips.
-    setProducts((prev) => [created, ...prev])
-    return created
+    // Realtime is the single source of truth for the products list; do not
+    // mutate local state here (avoids visual duplication when the WebSocket
+    // event arrives before the HTTP response).
+    return createProductService(input)
   }, [])
 
   const updateProduct = useCallback(async (id: string, input: Partial<ProductInput>) => {
-    const updated = await updateProductService(id, input)
-    setProducts((prev) => prev.map((p) => (p.id === id ? updated : p)))
-    return updated
+    // Realtime is the single source of truth for the products list; do not
+    // mutate local state here (avoids visual duplication when the WebSocket
+    // event arrives before the HTTP response).
+    return updateProductService(id, input)
   }, [])
 
   const deleteProduct = useCallback(async (id: string) => {
+    // Realtime is the single source of truth for the products list; do not
+    // mutate local state here (avoids visual duplication when the WebSocket
+    // event arrives before the HTTP response).
     await deleteProductService(id)
-    setProducts((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
   const fetchRecipeItems = useCallback(async (productId: string) => {
