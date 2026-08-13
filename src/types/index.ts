@@ -141,6 +141,40 @@ export interface SaleResult {
   items: CartItem[]
 }
 
+/** A single data point for a revenue/expenses time-series chart. */
+export interface DailyPoint {
+  date: string
+  value: number
+}
+
+/** A product ranked by sales quantity within a reporting period. */
+export interface TopProduct {
+  productName: string
+  quantitySold: number
+  totalRevenue: number
+}
+
+/** Revenue split by payment method for a reporting period. */
+export interface PaymentBreakdown {
+  dinheiro: number
+  cartao: number
+  pix: number
+}
+
+/** Aggregated metrics computed by the useReports hook for a date range. */
+export interface ReportData {
+  totalRevenue: number
+  totalExpenses: number
+  totalProfit: number
+  salesCount: number
+  purchasesCount: number
+  averageTicket: number
+  dailyRevenue: DailyPoint[]
+  dailyExpenses: DailyPoint[]
+  topProducts: TopProduct[]
+  paymentBreakdown: PaymentBreakdown
+}
+
 /** Aggregated metrics shown on the Dashboard page. */
 export interface DashboardMetrics {
   totalRevenue: number
