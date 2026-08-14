@@ -251,8 +251,10 @@ export function useReports(): UseReports {
         listProducts(),
       ])
 
-      // Keep only records whose date falls within the period (inclusive).
+      // Keep only records whose date falls within the period (inclusive) and
+      // are not stock-only adjustment sales (no revenue impact).
       const periodSales = allSales.filter((s) => {
+        if (s.isStockAdjustment) return false
         const d = recordDay(s.date)
         return d >= start && d <= end
       })

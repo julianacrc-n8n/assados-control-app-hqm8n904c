@@ -108,7 +108,18 @@ export interface Sale {
   date: string
   createdAt: string
   updatedAt: string
+  /** iFood commission amount in BRL (absolute, positive). 0 for PDV sales. */
+  ifoodCommission: number
+  /** iFood order UUID (prevents duplicate imports). null for PDV sales. */
+  ifoodOrderId: string | null
+  /** Origin of the sale: "PDV" (default) or "iFood". */
+  salesChannel: string
+  /** When true, the sale is a stock-only adjustment (zero revenue). */
+  isStockAdjustment: boolean
 }
+
+/** Allowed sales channel values. */
+export type SalesChannel = 'PDV' | 'iFood'
 
 /** A line item of a sale. */
 export interface SaleItem {

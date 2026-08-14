@@ -118,12 +118,14 @@ export function useDashboard(): UseDashboard {
     setLoading(true)
     setError(null)
     try {
-      const [salesData, purchasesData, ingredientsData, productsData] = await Promise.all([
+      const [salesDataRaw, purchasesData, ingredientsData, productsData] = await Promise.all([
         listAllSales(),
         listPurchases(),
         listIngredients(),
         listProducts(),
       ])
+      // Exclude stock-only adjustment sales from all dashboard metrics.
+      const salesData = salesDataRaw.filter((s) => !s.isStockAdjustment)
       if (!mountedRef.current) return
       setSales(salesData)
       setPurchases(purchasesData)

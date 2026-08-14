@@ -119,5 +119,9 @@ export function mapSale(r: any): Sale {
     date: date(r.date),
     createdAt: date(r.created),
     updatedAt: date(r.updated),
+    ifoodCommission: num(r.ifoodCommission, 0),
+    ifoodOrderId: strOrNull(r.ifoodOrderId),
+    salesChannel: str(r.salesChannel) || 'PDV',
+    isStockAdjustment: bool(r.isStockAdjustment, false),
   }
 }

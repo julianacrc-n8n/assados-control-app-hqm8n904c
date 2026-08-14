@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T00:05:39.702Z",
+  "generatedAt": "2026-08-14T12:52:40.364Z",
   "collections": [
     {
       "name": "users",
@@ -404,6 +404,31 @@
         {
           "name": "deliveryFee",
           "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ifoodCommission",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ifoodOrderId",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "salesChannel",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["PDV", "iFood"]
+        },
+        {
+          "name": "isStockAdjustment",
+          "type": "bool",
           "required": false,
           "system": false
         }

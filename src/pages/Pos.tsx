@@ -17,6 +17,7 @@ import {
   Printer,
   AlertTriangle,
   Package,
+  Upload,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/PageHeader'
+import { IfoodImportDialog } from '@/components/pos/IfoodImportDialog'
 import { usePOS } from '@/hooks/usePOS'
 import { useProductLookup } from '@/hooks/useProductLookup'
 import { listActiveProducts, searchActiveProducts } from '@/services/sales'
@@ -118,6 +120,7 @@ export default function PosPage() {
   // Dialogs
   const [receiptOpen, setReceiptOpen] = useState(false)
   const [clearCartOpen, setClearCartOpen] = useState(false)
+  const [ifoodOpen, setIfoodOpen] = useState(false)
 
   const cartEmpty = pos.cart.length === 0
 
@@ -293,7 +296,21 @@ export default function PosPage() {
 
   return (
     <section>
-      <PageHeader title="Ponto de Venda" subtitle="Venda produtos com leitor de código de barras" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <PageHeader
+          title="Ponto de Venda"
+          subtitle="Venda produtos com leitor de código de barras"
+        />
+        <Button
+          variant="outline"
+          className="h-11 shrink-0 gap-2 self-start"
+          onClick={() => setIfoodOpen(true)}
+          aria-label="Importar pedidos do iFood"
+        >
+          <Upload className="h-4 w-4" />
+          Importar do iFood
+        </Button>
+      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
         {/* ===================== LEFT COLUMN ===================== */}
@@ -685,6 +702,9 @@ export default function PosPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* iFood import dialog */}
+      <IfoodImportDialog open={ifoodOpen} onOpenChange={setIfoodOpen} />
 
       {/* Receipt dialog */}
       <Dialog
