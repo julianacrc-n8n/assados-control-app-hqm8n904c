@@ -96,6 +96,23 @@ function toNumber(value: unknown): number {
   return 0
 }
 
+/**
+ * Normalize an iFood Excel header so it can be compared regardless of case,
+ * accents, parentheses, spaces or underscores.
+ *
+ * e.g. "VALOR DOS ITENS (R$)" -> "valordositens"
+ *      "VALOR LÍQUIDO (R$)"    -> "valorliquido"
+ */
+function normalizeHeader(header: string): string {
+  return (header || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip accents (á à â ã é ê í ó ô õ ú ç ...)
+    .replace(/\([^)]*\)/g, '') // remove content between parentheses, e.g. "(R$)"
+    .replace(/[\s_]/g, '') // remove spaces and underscores
+    .replace(/[^a-z0-9]/g, '') // remove any remaining non-alphanumeric chars
+}
+
 /* ------------------------------------------------------------------ */
 /* Row types                                                           */
 /* ------------------------------------------------------------------ */
@@ -383,37 +400,37 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
       // Validate headers (best-effort).
       const headers = Object.keys(json[0] || {})
       const expected = [
-        'id_completo_do_pedido',
-        'data_e_hora_do_pedido',
-        'status_final_do_pedido',
-        'valor_dos_itens_r_',
-        'total_pago_pelo_cliente_r_',
-        'taxa_de_entrega_paga_pelo_cliente_r_',
-        'taxas_e_comissoes_r_',
-        'valor_liquido_r_',
-        'forma_de_pagamento',
+        'ID COMPLETO DO PEDIDO',
+        'DATA E HORA DO PEDIDO',
+        'STATUS FINAL DO PEDIDO',
+        'VALOR DOS ITENS (R$)',
+        'TOTAL PAGO PELO CLIENTE (R$)',
+        'TAXA DE ENTREGA PAGA PELO CLIENTE (R$)',
+        'TAXAS E COMISSÕES (R$)',
+        'VALOR LÍQUIDO (R$)',
+        'FORMA DE PAGAMENTO',
       ]
-      const missing = expected.filter((h) => !headers.some((x) => x.toLowerCase() === h))
+      const missing = expected.filter(
+        (h) => !headers.some((x) => normalizeHeader(x) === normalizeHeader(h)),
+      )
       if (missing.length > 0) {
         setPedidosWarning(
           'O arquivo não parece ser um relatório do iFood. Verifique se você exportou o relatório correto.',
         )
       }
 
-      const headerMap = (key: string) => {
-        const lk = key.toLowerCase()
-        return headers.find((h) => h.toLowerCase() === lk)
-      }
+      const headerMap = (key: string) =>
+        headers.find((h) => normalizeHeader(h) === normalizeHeader(key))
 
-      const hOrderId = headerMap('id_completo_do_pedido')
-      const hDate = headerMap('data_e_hora_do_pedido')
-      const hStatus = headerMap('status_final_do_pedido')
-      const hItems = headerMap('valor_dos_itens_r_')
-      const hPaid = headerMap('total_pago_pelo_cliente_r_')
-      const hDelivery = headerMap('taxa_de_entrega_paga_pelo_cliente_r_')
-      const hCommission = headerMap('taxas_e_comissoes_r_')
-      const hNet = headerMap('valor_liquido_r_')
-      const hPayment = headerMap('forma_de_pagamento')
+      const hOrderId = headerMap('ID COMPLETO DO PEDIDO')
+      const hDate = headerMap('DATA E HORA DO PEDIDO')
+      const hStatus = headerMap('STATUS FINAL DO PEDIDO')
+      const hItems = headerMap('VALOR DOS ITENS (R$)')
+      const hPaid = headerMap('TOTAL PAGO PELO CLIENTE (R$)')
+      const hDelivery = headerMap('TAXA DE ENTREGA PAGA PELO CLIENTE (R$)')
+      const hCommission = headerMap('TAXAS E COMISSÕES (R$)')
+      const hNet = headerMap('VALOR LÍQUIDO (R$)')
+      const hPayment = headerMap('FORMA DE PAGAMENTO')
 
       // Dedup set.
       const importedIds = await listImportedIfoodOrderIds()
@@ -421,15 +438,15 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
       let ignored = 0
       const rows: PedidoRow[] = []
       for (const r of json) {
-        const status = String(r[hStatus || 'status_final_do_pedido'] ?? '').trim()
-        const orderId = String(r[hOrderId || 'id_completo_do_pedido'] ?? '').trim()
-        const date = parseIfoodDate(r[hDate || 'data_e_hora_do_pedido'])
-        const itemsValue = toNumber(r[hItems || 'valor_dos_itens_r_'])
-        const paid = toNumber(r[hPaid || 'total_pago_pelo_cliente_r_'])
-        const delivery = toNumber(r[hDelivery || 'taxa_de_entrega_paga_pelo_cliente_r_'])
-        const commission = Math.abs(toNumber(r[hCommission || 'taxas_e_comissoes_r_']))
-        const net = toNumber(r[hNet || 'valor_liquido_r_'])
-        const paymentRaw = String(r[hPayment || 'forma_de_pagamento'] ?? '').trim()
+        const status = String(r[hStatus || 'STATUS FINAL DO PEDIDO'] ?? '').trim()
+        const orderId = String(r[hOrderId || 'ID COMPLETO DO PEDIDO'] ?? '').trim()
+        const date = parseIfoodDate(r[hDate || 'DATA E HORA DO PEDIDO'])
+        const itemsValue = toNumber(r[hItems || 'VALOR DOS ITENS (R$)'])
+        const paid = toNumber(r[hPaid || 'TOTAL PAGO PELO CLIENTE (R$)'])
+        const delivery = toNumber(r[hDelivery || 'TAXA DE ENTREGA PAGA PELO CLIENTE (R$)'])
+        const commission = Math.abs(toNumber(r[hCommission || 'TAXAS E COMISSÕES (R$)']))
+        const net = toNumber(r[hNet || 'VALOR LÍQUIDO (R$)'])
+        const paymentRaw = String(r[hPayment || 'FORMA DE PAGAMENTO'] ?? '').trim()
 
         const isConcluido = status.toUpperCase() === 'CONCLUIDO'
         const alreadyImported = Boolean(orderId) && importedIds.has(orderId)
@@ -590,17 +607,18 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
       }
 
       const headers = Object.keys(json[0] || {})
-      const headerMap = (key: string) => headers.find((h) => h.toLowerCase() === key.toLowerCase())
-      const hName = headerMap('nome_do_item')
-      const hQty = headerMap('vendas_total_quantidade_')
-      const hTotal = headerMap('valor_total')
+      const headerMap = (key: string) =>
+        headers.find((h) => normalizeHeader(h) === normalizeHeader(key))
+      const hName = headerMap('NOME DO ITEM')
+      const hQty = headerMap('VENDAS TOTAL QUANTIDADE')
+      const hTotal = headerMap('VALOR TOTAL')
 
       const products = await listProducts()
 
       const rows: CardapioRow[] = json.map((r) => {
-        const itemName = String(r[hName || 'nome_do_item'] ?? '').trim()
-        const quantity = toNumber(r[hQty || 'vendas_total_quantidade_'])
-        const totalValue = toNumber(r[hTotal || 'valor_total'])
+        const itemName = String(r[hName || 'NOME DO ITEM'] ?? '').trim()
+        const quantity = toNumber(r[hQty || 'VENDAS TOTAL QUANTIDADE'])
+        const totalValue = toNumber(r[hTotal || 'VALOR TOTAL'])
         const matched = matchProduct(itemName, products)
         return {
           itemName,
