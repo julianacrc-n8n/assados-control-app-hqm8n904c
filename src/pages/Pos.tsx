@@ -732,17 +732,72 @@ export default function PosPage() {
 
 function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: () => void }) {
   if (!sale) return null
-  const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
-  const shortId = sale.saleId.slice(0, 8)
 
   return (
     <div
       id="receipt-print"
       className="receipt-print-area flex flex-col gap-2 font-mono text-sm text-foreground"
     >
-      <h2 id="receipt-title" className="text-center text-base font-bold tracking-tight">
-        Assados Control
-      </h2>
+      {/* Copy 1 — VIA CLIENTE */}
+      <div style={{ pageBreakAfter: 'always' }}>
+        <ViaLabel text="VIA CLIENTE" />
+        <ReceiptBody sale={sale} />
+      </div>
+
+      {/* Cut separator between copies */}
+      <div style={{ borderTop: '1px dashed #999', margin: '8px 0' }} />
+      <div style={{ fontSize: '7px', color: '#999', textAlign: 'center' }}>--- corte ---</div>
+
+      {/* Copy 2 — VIA BALCÃO */}
+      <div>
+        <ViaLabel text="VIA BALCÃO" />
+        <ReceiptBody sale={sale} />
+      </div>
+
+      {/* Actions */}
+      <div className="mt-3 flex gap-2 print:hidden">
+        <Button type="button" className="h-11 flex-1 gap-2" onClick={() => openPrintWindow(sale)}>
+          <Printer className="h-4 w-4" />
+          Imprimir
+        </Button>
+        <Button type="button" variant="outline" className="h-11 flex-1" onClick={onClose}>
+          Fechar
+        </Button>
+      </div>
+      <p className="text-center text-muted-foreground" style={{ fontSize: '8px' }}>
+        Serão impressas 2 vias: Cliente e Balcão.
+      </p>
+    </div>
+  )
+}
+
+/** Black label bar that identifies a receipt copy (VIA CLIENTE / VIA BALCÃO). */
+function ViaLabel({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        backgroundColor: 'black',
+        color: 'white',
+        fontSize: '9px',
+        fontWeight: 700,
+        textAlign: 'center',
+        padding: '2px 0',
+        letterSpacing: '1px',
+      }}
+    >
+      {text}
+    </div>
+  )
+}
+
+/** The full receipt content (store name, date, items, totals, payment, change, thank you, pickup code). */
+function ReceiptBody({ sale }: { sale: SaleResult }) {
+  const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
+  const shortId = sale.saleId.slice(0, 8)
+
+  return (
+    <>
+      <h2 className="text-center text-base font-bold tracking-tight">Assados Control</h2>
       <p className="text-center text-xs text-muted-foreground">Cupom Não Fiscal</p>
       <div className="my-1 border-t border-dashed border-border" />
       <div className="flex justify-between text-xs">
@@ -824,16 +879,7 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
           </p>
         </div>
       )}
-      <div className="mt-3 flex gap-2 print:hidden">
-        <Button type="button" className="h-11 flex-1 gap-2" onClick={() => openPrintWindow(sale)}>
-          <Printer className="h-4 w-4" />
-          Imprimir
-        </Button>
-        <Button type="button" variant="outline" className="h-11 flex-1" onClick={onClose}>
-          Fechar
-        </Button>
-      </div>
-    </div>
+    </>
   )
 }
 
@@ -844,7 +890,11 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
  * descendants from being shown in print. Falls back to `window.print()` when
  * the popup is blocked.
  */
-function openPrintWindow(sale: SaleResult): void {
+/**
+ * Build the HTML for a single receipt copy body (without the VIA label).
+ * Returned as a string of HTML elements to be wrapped by a copy container.
+ */
+function buildReceiptBodyHtml(sale: SaleResult): string {
   const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
   const shortId = sale.saleId.slice(0, 8)
 
@@ -892,6 +942,77 @@ function openPrintWindow(sale: SaleResult): void {
         </div>
         <div style="text-align:center;font-size:8px;color:#666;">Apresente esta senha no balcão para retirar seu pedido.</div>`
     : ''
+
+  return `
+    <div class="header">Assados Control</div>
+    <div class="subheader">Cupom Não Fiscal</div>
+    <div class="dashed"></div>
+    <div class="meta">
+      <span>${formatSaleDate(sale.date)}</span>
+      <span>#${shortId}</span>
+    </div>
+    <div class="dashed"></div>
+    <div class="items">
+      ${itemsHtml}
+    </div>
+    <div class="dashed"></div>
+    ${deliveryHtml}
+    <div class="total">
+      <span>TOTAL</span>
+      <span>${formatBRL(sale.total)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;line-height:1.6;">
+      <span>Pagamento:</span>
+      <span>${escapeHtml(methodLabel)}</span>
+    </div>
+    ${cashHtml}
+    <div class="dashed"></div>
+    <div class="footer">Obrigado pela preferência!</div>
+    ${pickupCodeHtml}`
+}
+
+/** Black label bar that identifies a receipt copy (VIA CLIENTE / VIA BALCÃO). */
+function viaLabelHtml(text: string): string {
+  return `<div style="background-color:black;color:white;font-size:9px;font-weight:700;text-align:center;padding:2px 0;letter-spacing:1px;">${escapeHtml(text)}</div>`
+}
+
+/**
+ * Build a self-contained HTML document for the receipt and open it in a
+ * dedicated print window. Renders TWO copies (VIA CLIENTE and VIA BALCÃO)
+ * separated by a cut line. This avoids the CSS visibility limitation where a
+ * Radix Dialog portal wrapper marked `visibility: hidden` prevents its
+ * descendants from being shown in print. Falls back to `window.print()` when
+ * the popup is blocked.
+ */
+function openPrintWindow(sale: SaleResult): void {
+  const bodyHtml = buildReceiptBodyHtml(sale)
+
+  // Copy 1 — VIA CLIENTE (page-break-after: always so A4 printers start
+  // Copy 2 on a new page; thermal printers ignore the break and print
+  // continuously).
+  const copy1Html = `
+    <div class="receipt-copy" style="page-break-after:always;">
+      ${viaLabelHtml('VIA CLIENTE')}
+      <div class="receipt">
+        ${bodyHtml}
+        <div class="cut-margin"></div>
+      </div>
+    </div>`
+
+  // Cut separator between copies (dashed line + small centered label).
+  const separatorHtml = `
+    <div class="cut-separator" style="border-top:1px dashed #999;margin:8px 0;"></div>
+    <div style="font-size:7px;color:#999;text-align:center;">--- corte ---</div>`
+
+  // Copy 2 — VIA BALCÃO
+  const copy2Html = `
+    <div class="receipt-copy">
+      ${viaLabelHtml('VIA BALCÃO')}
+      <div class="receipt">
+        ${bodyHtml}
+        <div class="cut-margin"></div>
+      </div>
+    </div>`
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -976,34 +1097,9 @@ function openPrintWindow(sale: SaleResult): void {
 </style>
 </head>
 <body>
-  <div class="receipt">
-    <div class="header">Assados Control</div>
-    <div class="subheader">Cupom Não Fiscal</div>
-    <div class="dashed"></div>
-    <div class="meta">
-      <span>${formatSaleDate(sale.date)}</span>
-      <span>#${shortId}</span>
-    </div>
-    <div class="dashed"></div>
-    <div class="items">
-      ${itemsHtml}
-    </div>
-    <div class="dashed"></div>
-    ${deliveryHtml}
-    <div class="total">
-      <span>TOTAL</span>
-      <span>${formatBRL(sale.total)}</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;font-size:10px;line-height:1.6;">
-      <span>Pagamento:</span>
-      <span>${escapeHtml(methodLabel)}</span>
-    </div>
-    ${cashHtml}
-    <div class="dashed"></div>
-    <div class="footer">Obrigado pela preferência!</div>
-    ${pickupCodeHtml}
-    <div class="cut-margin"></div>
-  </div>
+  ${copy1Html}
+  ${separatorHtml}
+  ${copy2Html}
   <script>
     window.onload = function () { window.print(); };
     window.onafterprint = function () { window.close(); };

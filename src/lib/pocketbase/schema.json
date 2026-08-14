@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T20:31:24.123Z",
+  "generatedAt": "2026-08-14T20:54:06.462Z",
   "collections": [
     {
       "name": "users",
@@ -425,12 +425,6 @@
           "required": false,
           "system": false,
           "selectValues": ["PDV", "iFood"]
-        },
-        {
-          "name": "isStockAdjustment",
-          "type": "bool",
-          "required": false,
-          "system": false
         },
         {
           "name": "isStockAdjustment",
