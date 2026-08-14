@@ -121,6 +121,12 @@ export interface Sale {
    * completed. null for iFood imported sales or older sales.
    */
   pickupCode: string | null
+  /**
+   * Optional order annotations entered by the user in the PDV checkout
+   * (ex: "sem cebola", "bem passado"). null for iFood imported sales or
+   * older sales.
+   */
+  orderNotes: string | null
 }
 
 /** Allowed sales channel values. */
@@ -159,6 +165,8 @@ export interface SaleResult {
   items: CartItem[]
   /** 4-digit pickup password generated on PDV sale completion. */
   pickupCode: string | null
+  /** Optional order annotations entered in the PDV checkout. */
+  orderNotes: string | null
 }
 
 /** A single data point for a revenue/expenses time-series chart. */

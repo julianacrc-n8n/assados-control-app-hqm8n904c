@@ -88,6 +88,7 @@ export async function listActiveProducts(): Promise<Product[]> {
  * @param amountPaid  the cash received (null for non-cash methods)
  * @param change      the change to return (null for non-cash methods)
  * @param deliveryFee the delivery fee charged for this sale (0 if none)
+ * @param orderNotes optional order annotations entered in the PDV checkout
  */
 export async function checkoutSale(
   cart: CartItem[],
@@ -96,6 +97,7 @@ export async function checkoutSale(
   amountPaid: number | null,
   change: number | null,
   deliveryFee: number,
+  orderNotes: string | null,
 ): Promise<SaleResult> {
   try {
     const userId = pb.authStore.record?.id
@@ -103,6 +105,8 @@ export async function checkoutSale(
 
     const date = new Date().toISOString()
     const safeDeliveryFee = Number.isFinite(deliveryFee) && deliveryFee > 0 ? deliveryFee : 0
+    const safeOrderNotes =
+      typeof orderNotes === 'string' && orderNotes.trim() !== '' ? orderNotes.trim() : null
 
     // Generate a 4-digit pickup code (senha de retirada) for PDV sales.
     // Generated before insert so it is part of the initial sale record.
@@ -124,6 +128,7 @@ export async function checkoutSale(
       deliveryFee: safeDeliveryFee,
       date,
       pickupCode,
+      orderNotes: safeOrderNotes,
     })
 
     const sale = saleRecord as unknown as Sale
@@ -149,6 +154,7 @@ export async function checkoutSale(
       date,
       items: cart,
       pickupCode,
+      orderNotes,
     }
   } catch (error) {
     throw toPTBR(error)

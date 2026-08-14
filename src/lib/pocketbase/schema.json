@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T20:54:06.462Z",
+  "generatedAt": "2026-08-14T21:12:39.278Z",
   "collections": [
     {
       "name": "users",
@@ -434,6 +434,12 @@
         },
         {
           "name": "pickupCode",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "orderNotes",
           "type": "text",
           "required": false,
           "system": false

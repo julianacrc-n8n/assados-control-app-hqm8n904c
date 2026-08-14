@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/PageHeader'
 import { IfoodImportDialog } from '@/components/pos/IfoodImportDialog'
@@ -111,6 +112,8 @@ export default function PosPage() {
   const [amountPaid, setAmountPaid] = useState('')
   // Delivery fee (optional). Empty string = treated as 0.
   const [deliveryFee, setDeliveryFee] = useState('')
+  // Order notes (optional). Free text annotation shown only on Via Balcão.
+  const [orderNotes, setOrderNotes] = useState('')
   const deliveryFeeNumRaw = useMemo(() => parseBRLNumber(deliveryFee), [deliveryFee])
   const deliveryFeeNum = deliveryFeeNumRaw < 0 ? 0 : deliveryFeeNumRaw
   const deliveryFeeNegative = deliveryFeeNumRaw < 0
@@ -254,11 +257,13 @@ export default function PosPage() {
         amountPaid: amountPaidValue,
         change: changeValue,
         deliveryFee: deliveryFeeNum,
+        orderNotes,
       })
       toast.success('Venda realizada com sucesso!')
       setPaymentMethod('dinheiro')
       setAmountPaid('')
       setDeliveryFee('')
+      setOrderNotes('')
       setReceiptOpen(true)
       if (pos.lowStockWarnings.length > 0) {
         toast.warning(`Atenção: estoque baixo para: ${pos.lowStockWarnings.join(', ')}`)
@@ -270,7 +275,7 @@ export default function PosPage() {
         err instanceof Error ? err.message : 'Não foi possível finalizar a venda. Tente novamente.',
       )
     }
-  }, [canCheckout, paymentMethod, amountPaidNum, change, pos, deliveryFeeNum])
+  }, [canCheckout, paymentMethod, amountPaidNum, change, pos, deliveryFeeNum, orderNotes])
 
   // Global keyboard shortcuts: F2 (focus barcode), F9 (checkout), Escape (close dropdown).
   useEffect(() => {
@@ -653,6 +658,27 @@ export default function PosPage() {
                 )}
               </div>
 
+              {/* Order notes (optional) — shown only on Via Balcão receipt */}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="order-notes" className="text-sm font-medium text-foreground">
+                  Observações do pedido
+                </Label>
+                <Textarea
+                  id="order-notes"
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
+                  placeholder="Ex: sem cebola, bem passado, retirada as 18h..."
+                  rows={2}
+                  maxLength={200}
+                  aria-label="Observações do pedido"
+                  disabled={pos.checkingOut}
+                  className="w-full resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Aparece apenas na Via Balcão do cupom. Máximo 200 caracteres.
+                </p>
+              </div>
+
               {/* Section 5 — Checkout button */}
               <Button
                 type="button"
@@ -752,6 +778,7 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
       <div>
         <ViaLabel text="VIA BALCÃO" />
         <ReceiptBody sale={sale} />
+        {sale.orderNotes && <ObservacoesSection notes={sale.orderNotes} />}
       </div>
 
       {/* Actions */}
@@ -786,6 +813,44 @@ function ViaLabel({ text }: { text: string }) {
       }}
     >
       {text}
+    </div>
+  )
+}
+
+/**
+ * Observações section — shown ONLY on the Via Balcão receipt copy, below the
+ * pickup code (or thank-you line) and above the footer. Omitted entirely when
+ * notes are null/empty. Never rendered on the Via Cliente copy.
+ */
+function ObservacoesSection({ notes }: { notes: string }) {
+  return (
+    <div style={{ marginTop: '6px' }}>
+      <p
+        style={{
+          textAlign: 'center',
+          fontSize: '9px',
+          fontWeight: 700,
+          letterSpacing: '1px',
+          textTransform: 'uppercase',
+          marginTop: '6px',
+        }}
+      >
+        Observações
+      </p>
+      <p
+        style={{
+          textAlign: 'left',
+          fontSize: '10px',
+          fontWeight: 600,
+          backgroundColor: '#f0f0f0',
+          padding: '4px 6px',
+          borderRadius: '2px',
+          marginTop: '2px',
+          wordBreak: 'break-word',
+        }}
+      >
+        {notes}
+      </p>
     </div>
   )
 }
@@ -884,17 +949,11 @@ function ReceiptBody({ sale }: { sale: SaleResult }) {
 }
 
 /**
- * Build a self-contained HTML document for the receipt and open it in a
- * dedicated print window. This avoids the CSS visibility limitation where a
- * Radix Dialog portal wrapper marked `visibility: hidden` prevents its
- * descendants from being shown in print. Falls back to `window.print()` when
- * the popup is blocked.
- */
-/**
  * Build the HTML for a single receipt copy body (without the VIA label).
- * Returned as a string of HTML elements to be wrapped by a copy container.
+ * When `includeNotes` is true (Via Balcão only), appends the observações
+ * section below the pickup code / thank-you line, above the footer.
  */
-function buildReceiptBodyHtml(sale: SaleResult): string {
+function buildReceiptBodyHtmlForCopy(sale: SaleResult, includeNotes: boolean): string {
   const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
   const shortId = sale.saleId.slice(0, 8)
 
@@ -943,6 +1002,13 @@ function buildReceiptBodyHtml(sale: SaleResult): string {
         <div style="text-align:center;font-size:8px;color:#666;">Apresente esta senha no balcão para retirar seu pedido.</div>`
     : ''
 
+  const orderNotesHtml =
+    includeNotes && sale.orderNotes
+      ? `
+        <div style="text-align:center;font-weight:700;font-size:9px;letter-spacing:1px;text-transform:uppercase;margin-top:6px;">Observações</div>
+        <div style="text-align:left;font-size:10px;font-weight:600;background-color:#f0f0f0;padding:4px 6px;border-radius:2px;margin-top:2px;word-break:break-word;">${escapeHtml(sale.orderNotes)}</div>`
+      : ''
+
   return `
     <div class="header">Assados Control</div>
     <div class="subheader">Cupom Não Fiscal</div>
@@ -968,7 +1034,8 @@ function buildReceiptBodyHtml(sale: SaleResult): string {
     ${cashHtml}
     <div class="dashed"></div>
     <div class="footer">Obrigado pela preferência!</div>
-    ${pickupCodeHtml}`
+    ${pickupCodeHtml}
+    ${orderNotesHtml}`
 }
 
 /** Black label bar that identifies a receipt copy (VIA CLIENTE / VIA BALCÃO). */
@@ -985,16 +1052,14 @@ function viaLabelHtml(text: string): string {
  * the popup is blocked.
  */
 function openPrintWindow(sale: SaleResult): void {
-  const bodyHtml = buildReceiptBodyHtml(sale)
-
   // Copy 1 — VIA CLIENTE (page-break-after: always so A4 printers start
   // Copy 2 on a new page; thermal printers ignore the break and print
-  // continuously).
+  // continuously). No observações on the customer copy.
   const copy1Html = `
     <div class="receipt-copy" style="page-break-after:always;">
       ${viaLabelHtml('VIA CLIENTE')}
       <div class="receipt">
-        ${bodyHtml}
+        ${buildReceiptBodyHtmlForCopy(sale, false)}
         <div class="cut-margin"></div>
       </div>
     </div>`
@@ -1004,12 +1069,12 @@ function openPrintWindow(sale: SaleResult): void {
     <div class="cut-separator" style="border-top:1px dashed #999;margin:8px 0;"></div>
     <div style="font-size:7px;color:#999;text-align:center;">--- corte ---</div>`
 
-  // Copy 2 — VIA BALCÃO
+  // Copy 2 — VIA BALCÃO (includes the observações section when notes exist).
   const copy2Html = `
     <div class="receipt-copy">
       ${viaLabelHtml('VIA BALCÃO')}
       <div class="receipt">
-        ${bodyHtml}
+        ${buildReceiptBodyHtmlForCopy(sale, true)}
         <div class="cut-margin"></div>
       </div>
     </div>`

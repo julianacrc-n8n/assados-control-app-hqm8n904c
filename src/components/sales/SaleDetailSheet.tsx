@@ -217,6 +217,24 @@ export function SaleDetailSheet({ open, onOpenChange, saleId }: SaleDetailSheetP
                       <span className="text-muted-foreground">Sem senha</span>
                     )}
                   </SummaryField>
+                  <SummaryField label="Observações">
+                    {sale.orderNotes ? (
+                      <span
+                        className="font-semibold text-foreground"
+                        style={{
+                          backgroundColor: '#f0f0f0',
+                          padding: '4px 6px',
+                          borderRadius: '2px',
+                          wordBreak: 'break-word',
+                          display: 'inline-block',
+                        }}
+                      >
+                        {sale.orderNotes}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Sem observações</span>
+                    )}
+                  </SummaryField>
                 </dl>
               </section>
 

@@ -124,5 +124,6 @@ export function mapSale(r: any): Sale {
     salesChannel: str(r.salesChannel) || 'PDV',
     isStockAdjustment: bool(r.isStockAdjustment, false),
     pickupCode: strOrNull(r.pickupCode),
+    orderNotes: strOrNull(r.orderNotes),
   }
 }
