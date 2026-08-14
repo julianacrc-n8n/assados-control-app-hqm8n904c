@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   Loader2,
   Package,
+  PlusCircle,
   Upload,
   X,
 } from 'lucide-react'
@@ -19,9 +20,10 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { formatBRL } from '@/lib/format'
-import { listProducts } from '@/services/products'
+import { createProduct, listProducts } from '@/services/products'
 import {
   createIfoodSale,
   createIfoodStockAdjustment,
@@ -67,6 +69,14 @@ function formatDateTime(d: Date): string {
   const hh = String(d.getHours()).padStart(2, '0')
   const min = String(d.getMinutes()).padStart(2, '0')
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`
+}
+
+/** Format a Date as DD/MM/YYYY (pt-BR, local time). */
+function formatDate(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  return `${dd}/${mm}/${yyyy}`
 }
 
 /** Parse an iFood datetime string ("YYYY-MM-DD HH:mm:ss") into a Date. */
@@ -625,7 +635,10 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
           quantity,
           totalValue,
           matchedProduct: matched,
-          selected: matched !== null,
+          // Matched and unmatched items are both checked by default. Matched
+          // items link to an existing product; unmatched items will be auto
+          // created as new products at import time.
+          selected: true,
         }
       })
 
@@ -645,16 +658,40 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
     () => cardapio.filter((r) => r.matchedProduct === null),
     [cardapio],
   )
-  const selectedCardapio = useMemo(
+  const selectedMatchedCardapio = useMemo(
     () => matchedCardapio.filter((r) => r.selected),
     [matchedCardapio],
+  )
+  const selectedUnmatchedCardapio = useMemo(
+    () => unmatchedCardapio.filter((r) => r.selected),
+    [unmatchedCardapio],
+  )
+  const selectedCardapio = useMemo(
+    () => [...selectedMatchedCardapio, ...selectedUnmatchedCardapio],
+    [selectedMatchedCardapio, selectedUnmatchedCardapio],
+  )
+  const uncheckedUnmatchedCardapio = useMemo(
+    () => unmatchedCardapio.filter((r) => !r.selected),
+    [unmatchedCardapio],
   )
 
   const toggleCardapio = (itemName: string) => {
     setCardapio((prev) =>
-      prev.map((r) =>
-        r.itemName === itemName && r.matchedProduct !== null ? { ...r, selected: !r.selected } : r,
-      ),
+      prev.map((r) => (r.itemName === itemName ? { ...r, selected: !r.selected } : r)),
+    )
+  }
+
+  const allMatchedChecked = matchedCardapio.length > 0 && matchedCardapio.every((r) => r.selected)
+  const toggleAllMatched = (checked: boolean) => {
+    setCardapio((prev) =>
+      prev.map((r) => (r.matchedProduct !== null ? { ...r, selected: checked } : r)),
+    )
+  }
+  const allUnmatchedChecked =
+    unmatchedCardapio.length > 0 && unmatchedCardapio.every((r) => r.selected)
+  const toggleAllUnmatched = (checked: boolean) => {
+    setCardapio((prev) =>
+      prev.map((r) => (r.matchedProduct === null ? { ...r, selected: checked } : r)),
     )
   }
 
@@ -664,43 +701,121 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
     if (selectedCardapio.length === 0 || cardapioImporting) return
     setCardapioImporting(true)
     setCardapioProgress(0)
-    let done = 0
-    const total = selectedCardapio.length
+
+    // Snapshot the products collection once for deduplication against pre-existing
+    // products as well as products created during this same import run.
+    let existing: Product[]
     try {
-      const items = selectedCardapio.map((r) => {
+      existing = await listProducts()
+    } catch {
+      toast.error('Não foi possível carregar os produtos. Tente novamente.')
+      setCardapioImporting(false)
+      return
+    }
+    const byName = new Map<string, Product>()
+    for (const p of existing) byName.set(p.name.trim().toLowerCase(), p)
+
+    const creationDescription = `Produto criado automaticamente da importação do iFood em ${formatDate(new Date())}`
+
+    // Phase 1 — create products for each checked unmatched item (with dedup).
+    const toCreate = selectedUnmatchedCardapio
+    // Map of row.itemName -> resolved Product (newly created or pre-existing
+    // duplicate). Only populated for rows that succeeded.
+    const resolvedByName = new Map<string, Product>()
+    const creationFailures: string[] = []
+    if (toCreate.length > 0) {
+      for (let i = 0; i < toCreate.length; i++) {
+        const row = toCreate[i]
+        try {
+          const key = row.itemName.trim().toLowerCase()
+          const cached = byName.get(key)
+          if (cached) {
+            resolvedByName.set(row.itemName, cached)
+          } else {
+            const price = row.quantity > 0 ? row.totalValue / row.quantity : row.totalValue
+            const created = await createProduct({
+              name: row.itemName,
+              barcode: null,
+              price,
+              description: creationDescription,
+              active: true,
+            })
+            byName.set(key, created)
+            resolvedByName.set(row.itemName, created)
+          }
+        } catch {
+          creationFailures.push(row.itemName)
+        }
+        setCardapioProgress(Math.round(((i + 1) / toCreate.length) * 50))
+      }
+    }
+
+    // If every unmatched product creation failed, surface a hard error.
+    if (toCreate.length > 0 && resolvedByName.size === 0) {
+      toast.error('Não foi possível criar os produtos. Tente novamente.')
+      setCardapioImporting(false)
+      return
+    }
+
+    // Phase 2 — consolidated stock-adjustment sale for matched + newly created.
+    setCardapioProgress(50)
+    const matchedItems = selectedMatchedCardapio.map((r) => {
+      const qty = r.quantity > 0 ? r.quantity : 0
+      const unitPrice = qty > 0 ? r.totalValue / qty : 0
+      return { productId: r.matchedProduct!.id, quantity: qty, unitPrice }
+    })
+    const createdItems = toCreate
+      .filter((r) => resolvedByName.has(r.itemName))
+      .map((r) => {
+        const product = resolvedByName.get(r.itemName)!
         const qty = r.quantity > 0 ? r.quantity : 0
         const unitPrice = qty > 0 ? r.totalValue / qty : 0
-        return {
-          productId: r.matchedProduct!.id,
-          quantity: qty,
-          unitPrice,
-        }
+        return { productId: product.id, quantity: qty, unitPrice }
       })
+    const createdCount = resolvedByName.size
+    const createdProducts = Array.from(resolvedByName.values())
 
-      for (let i = 0; i < items.length; i++) {
-        // The consolidated sale + all items are created in one service call;
-        // we still report progress per item.
-        void items[i]
-        done += 1
-        setCardapioProgress(Math.round((done / total) * 100))
-      }
-
+    // If dedup collapsed a to-be-created product onto a matched product, the
+    // items list may contain duplicates; that is fine — each row is its own
+    // sale_item and the BOM hook sums them.
+    const items = [...matchedItems, ...createdItems]
+    let importedCount = 0
+    try {
       await createIfoodStockAdjustment(items)
-
-      toast.success(`Estoque ajustado para ${done} produtos.`)
-      if (unmatchedCardapio.length > 0) {
-        toast.warning(
-          `Itens sem correspondência: ${unmatchedCardapio.map((r) => r.itemName).join(', ')}`,
-        )
-      }
-      setStep2Done(true)
+      importedCount = items.length
+      setCardapioProgress(100)
     } catch {
       toast.error('Erro ao importar itens. Tente novamente.')
-    } finally {
       setCardapioImporting(false)
-      setCardapioProgress(100)
+      return
     }
-  }, [selectedCardapio, cardapioImporting, unmatchedCardapio])
+
+    // Per-item creation failures: warn about each skipped item.
+    for (const name of creationFailures) {
+      toast.warning(
+        `Não foi possível criar o produto ${name}. Verifique e tente importar novamente.`,
+      )
+    }
+
+    toast.success(
+      `${importedCount} itens importados e ${createdProducts.length} produtos criados automaticamente.`,
+    )
+
+    if (uncheckedUnmatchedCardapio.length > 0) {
+      toast.warning(
+        `${uncheckedUnmatchedCardapio.length} itens sem correspondência foram ignorados: ${uncheckedUnmatchedCardapio.map((r) => r.itemName).join(', ')}`,
+      )
+    }
+
+    setStep2Done(true)
+    setCardapioImporting(false)
+  }, [
+    selectedCardapio,
+    cardapioImporting,
+    selectedUnmatchedCardapio,
+    selectedMatchedCardapio,
+    uncheckedUnmatchedCardapio,
+  ])
 
   /* ---------------- Render ---------------- */
 
@@ -995,6 +1110,27 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
 
               {cardapioStatus === 'success' && cardapio.length > 0 && (
                 <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={allMatchedChecked}
+                        onCheckedChange={(v) => toggleAllMatched(v === true)}
+                        aria-label="Selecionar todos"
+                        disabled={matchedCardapio.length === 0}
+                      />
+                      Selecionar todos
+                    </label>
+                    {unmatchedCardapio.length > 0 && (
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={allUnmatchedChecked}
+                          onCheckedChange={(v) => toggleAllUnmatched(v === true)}
+                          aria-label="Selecionar todos não cadastrados"
+                        />
+                        Selecionar todos não cadastrados
+                      </label>
+                    )}
+                  </div>
                   <div className="overflow-x-auto rounded-[var(--radius)] border border-border">
                     <table className="w-full text-sm">
                       <thead className="bg-muted">
@@ -1026,7 +1162,6 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
                               <div className="flex items-center justify-center">
                                 <Checkbox
                                   checked={r.selected}
-                                  disabled={r.matchedProduct === null}
                                   onCheckedChange={() => toggleCardapio(r.itemName)}
                                   aria-label={`Importar item ${r.itemName}`}
                                 />
@@ -1042,10 +1177,22 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
                               {r.matchedProduct ? (
                                 <span className="text-foreground">{r.matchedProduct.name}</span>
                               ) : (
-                                <span className="flex items-center gap-1 text-destructive">
-                                  <AlertTriangle className="h-3.5 w-3.5" />
-                                  Não encontrado
-                                </span>
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="cursor-help text-left text-muted-foreground underline decoration-dotted underline-offset-2"
+                                      >
+                                        {r.itemName}
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Este produto será criado automaticamente com o nome e preço do
+                                      iFood.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                               )}
                             </td>
                             <td className="whitespace-nowrap px-2 py-2 text-right text-foreground tabular-nums">
@@ -1058,7 +1205,10 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
                               {r.matchedProduct ? (
                                 <CheckCircle2 className="h-4 w-4 text-primary" />
                               ) : (
-                                <AlertTriangle className="h-4 w-4 text-destructive" />
+                                <Badge className="gap-1 bg-primary/10 text-primary hover:bg-primary/10">
+                                  <PlusCircle className="h-3.5 w-3.5" />
+                                  Criar produto
+                                </Badge>
                               )}
                             </td>
                           </tr>
@@ -1068,8 +1218,9 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
                   </div>
 
                   <p className="text-xs text-muted-foreground">
-                    {matchedCardapio.length} itens correspondem a produtos cadastrados (
-                    {unmatchedCardapio.length} sem correspondência).
+                    {matchedCardapio.length} itens correspondem a produtos cadastrados.{' '}
+                    {selectedUnmatchedCardapio.length} itens serão criados automaticamente.{' '}
+                    {uncheckedUnmatchedCardapio.length} itens sem correspondência (desmarcados).
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Os itens serão importados como uma venda consolidada de ajuste de estoque (sem
@@ -1079,7 +1230,11 @@ export function IfoodImportDialog({ open, onOpenChange }: IfoodImportDialogProps
                   {cardapioImporting && (
                     <div className="flex flex-col gap-1.5">
                       <Progress value={cardapioProgress} />
-                      <p className="text-xs text-muted-foreground">Importando itens...</p>
+                      <p className="text-xs text-muted-foreground">
+                        {cardapioProgress < 50 && selectedUnmatchedCardapio.length > 0
+                          ? `Criando ${selectedUnmatchedCardapio.length} produtos...`
+                          : 'Importando itens...'}
+                      </p>
                     </div>
                   )}
 
