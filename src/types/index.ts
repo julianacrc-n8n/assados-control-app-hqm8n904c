@@ -116,6 +116,11 @@ export interface Sale {
   salesChannel: string
   /** When true, the sale is a stock-only adjustment (zero revenue). */
   isStockAdjustment: boolean
+  /**
+   * 4-digit pickup password (e.g. "0473") generated when a PDV sale is
+   * completed. null for iFood imported sales or older sales.
+   */
+  pickupCode: string | null
 }
 
 /** Allowed sales channel values. */
@@ -152,6 +157,8 @@ export interface SaleResult {
   deliveryFee: number
   date: string
   items: CartItem[]
+  /** 4-digit pickup password generated on PDV sale completion. */
+  pickupCode: string | null
 }
 
 /** A single data point for a revenue/expenses time-series chart. */

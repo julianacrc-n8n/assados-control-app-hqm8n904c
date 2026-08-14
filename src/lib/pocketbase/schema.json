@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T14:42:59.917Z",
+  "generatedAt": "2026-08-14T20:31:24.123Z",
   "collections": [
     {
       "name": "users",
@@ -429,6 +429,18 @@
         {
           "name": "isStockAdjustment",
           "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "isStockAdjustment",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "pickupCode",
+          "type": "text",
           "required": false,
           "system": false
         }

@@ -797,6 +797,33 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
       )}
       <div className="my-1 border-t border-dashed border-border" />
       <p className="text-center text-xs">Obrigado pela preferência!</p>
+      {sale.pickupCode && (
+        <div className="mt-2 flex flex-col items-center gap-1">
+          <p
+            className="text-center font-bold uppercase"
+            style={{ fontSize: '11px', letterSpacing: '2px' }}
+          >
+            Senha de Retirada
+          </p>
+          <span
+            className="font-bold tabular-nums"
+            style={{
+              display: 'inline-block',
+              border: '1px dashed #999',
+              padding: '4px 8px',
+              margin: '4px auto',
+              fontSize: '32px',
+              fontWeight: 700,
+              letterSpacing: '6px',
+            }}
+          >
+            {sale.pickupCode}
+          </span>
+          <p className="text-center text-muted-foreground" style={{ fontSize: '8px' }}>
+            Apresente esta senha no balcão para retirar seu pedido.
+          </p>
+        </div>
+      )}
       <div className="mt-3 flex gap-2 print:hidden">
         <Button type="button" className="h-11 flex-1 gap-2" onClick={() => openPrintWindow(sale)}>
           <Printer className="h-4 w-4" />
@@ -856,6 +883,15 @@ function openPrintWindow(sale: SaleResult): void {
           <span>${formatBRL(sale.deliveryFee)}</span>
         </div>`
       : ''
+
+  const pickupCodeHtml = sale.pickupCode
+    ? `
+        <div style="text-align:center;font-weight:700;font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-top:2mm;">Senha de Retirada</div>
+        <div style="text-align:center;margin-top:1mm;">
+          <span style="display:inline-block;border:1px dashed #999;padding:4px 8px;margin:4px auto;font-size:32px;font-weight:700;letter-spacing:6px;">${escapeHtml(sale.pickupCode)}</span>
+        </div>
+        <div style="text-align:center;font-size:8px;color:#666;">Apresente esta senha no balcão para retirar seu pedido.</div>`
+    : ''
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -919,7 +955,7 @@ function openPrintWindow(sale: SaleResult): void {
   .footer {
     text-align: center;
     font-size: 10px;
-    margin-top: 2mm;
+    margin-top: 1mm;
   }
   .cut-margin { height: 5mm; }
   @media print and (max-width: 58mm) {
@@ -965,6 +1001,7 @@ function openPrintWindow(sale: SaleResult): void {
     ${cashHtml}
     <div class="dashed"></div>
     <div class="footer">Obrigado pela preferência!</div>
+    ${pickupCodeHtml}
     <div class="cut-margin"></div>
   </div>
   <script>

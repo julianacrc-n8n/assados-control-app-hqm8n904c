@@ -205,6 +205,18 @@ export function SaleDetailSheet({ open, onOpenChange, saleId }: SaleDetailSheetP
                   <SummaryField label="Valor Líquido">
                     <NetValue sale={sale} />
                   </SummaryField>
+                  <SummaryField label="Senha de Retirada">
+                    {sale.pickupCode ? (
+                      <span
+                        className="font-mono text-[1.125rem] font-bold tracking-[0.25rem]"
+                        aria-label="Senha de retirada do pedido"
+                      >
+                        {sale.pickupCode}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Sem senha</span>
+                    )}
+                  </SummaryField>
                 </dl>
               </section>
 

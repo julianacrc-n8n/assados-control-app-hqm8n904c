@@ -104,6 +104,17 @@ export async function checkoutSale(
     const date = new Date().toISOString()
     const safeDeliveryFee = Number.isFinite(deliveryFee) && deliveryFee > 0 ? deliveryFee : 0
 
+    // Generate a 4-digit pickup code (senha de retirada) for PDV sales.
+    // Generated before insert so it is part of the initial sale record.
+    let pickupCode: string | null = null
+    try {
+      pickupCode = Math.floor(Math.random() * 10000)
+        .toString()
+        .padStart(4, '0')
+    } catch {
+      pickupCode = null
+    }
+
     const saleRecord = await pb.collection('sales').create({
       userId,
       total,
@@ -112,6 +123,7 @@ export async function checkoutSale(
       change: change ?? 0,
       deliveryFee: safeDeliveryFee,
       date,
+      pickupCode,
     })
 
     const sale = saleRecord as unknown as Sale
@@ -136,6 +148,7 @@ export async function checkoutSale(
       deliveryFee: safeDeliveryFee,
       date,
       items: cart,
+      pickupCode,
     }
   } catch (error) {
     throw toPTBR(error)

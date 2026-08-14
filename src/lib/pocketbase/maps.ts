@@ -123,5 +123,6 @@ export function mapSale(r: any): Sale {
     ifoodOrderId: strOrNull(r.ifoodOrderId),
     salesChannel: str(r.salesChannel) || 'PDV',
     isStockAdjustment: bool(r.isStockAdjustment, false),
+    pickupCode: strOrNull(r.pickupCode),
   }
 }
