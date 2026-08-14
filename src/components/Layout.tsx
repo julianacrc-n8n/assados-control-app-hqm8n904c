@@ -20,6 +20,7 @@ const navItems = [
   { label: 'Produtos', path: '/products', icon: Package },
   { label: 'Compras', path: '/purchases', icon: ShoppingCart },
   { label: 'PDV', path: '/pos', icon: ScanLine },
+  { label: 'Vendas', path: '/sales', icon: ShoppingCart },
   { label: 'Relatórios', path: '/reports', icon: BarChart3 },
 ]
 

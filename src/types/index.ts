@@ -227,3 +227,34 @@ export interface CostSummary {
    */
   hasPartialCost?: boolean
 }
+
+/** A sale row displayed in the sales history list. */
+export interface SaleListItem {
+  id: string
+  date: string | Date
+  total: number
+  deliveryFee: number
+  ifoodCommission: number
+  salesChannel: string
+  paymentMethod: string
+  amountPaid: number | null
+  change: number | null
+  isStockAdjustment: boolean
+}
+
+/** A sale_item enriched with its product name, for the sale detail sheet. */
+export interface SaleItemDetail {
+  productId: string
+  productName: string
+  quantity: number
+  unitPrice: number
+  subtotal: number
+}
+
+/** Filter values applied to the sales history list. */
+export interface SaleFilter {
+  startDate: string | null
+  endDate: string | null
+  channel: string
+  paymentMethod: string
+}
