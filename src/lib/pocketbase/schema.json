@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T21:12:39.278Z",
+  "generatedAt": "2026-08-14T22:25:53.117Z",
   "collections": [
     {
       "name": "users",
@@ -489,6 +489,106 @@
           "name": "unitPrice",
           "type": "number",
           "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "store_settings",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "storeName",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "storeLogoUrl",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "storePhone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "storeWhatsapp",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "storeInstagram",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "storeAddress",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "storeThankYouMessage",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "storePrimaryColor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "devBrandName",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "devBrandWhatsapp",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "devBrandShowOnReceipt",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "devBrandLandingPageUrl",
+          "type": "text",
+          "required": false,
           "system": false
         },
         {

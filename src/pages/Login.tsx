@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { Croissant, Loader2, ArrowLeft } from 'lucide-react'
+import { Loader2, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/hooks/useAuth'
+import { useStoreSettings } from '@/hooks/useStoreSettings'
 
 interface LocationState {
   from?: string
@@ -17,6 +18,10 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { signIn } = useAuth()
+  const { settings, loading: settingsLoading } = useStoreSettings()
+
+  const storeName =
+    settingsLoading && !settings.id ? 'Minha Loja' : settings.storeName || 'Minha Loja'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -64,10 +69,20 @@ export default function LoginPage() {
           <CardContent className="p-6">
             {/* Header */}
             <div className="flex flex-col items-center text-center mb-6">
-              <div className="flex items-center justify-center h-12 w-12 rounded-full bg-primary/10 mb-3">
-                <Croissant className="h-6 w-6 text-primary" aria-hidden="true" />
+              <div className="flex items-center justify-center h-12 w-12 rounded-full bg-primary/10 mb-3 overflow-hidden">
+                {settings.storeLogoUrl ? (
+                  <img
+                    src={settings.storeLogoUrl}
+                    alt={storeName}
+                    className="h-8 w-auto object-contain"
+                  />
+                ) : (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-base font-bold text-primary-foreground">
+                    {(storeName || '?').charAt(0).toUpperCase()}
+                  </span>
+                )}
               </div>
-              <h1 className="text-xl font-bold tracking-tight">Assados Control</h1>
+              <h1 className="text-xl font-bold tracking-tight">{storeName}</h1>
               <p className="text-sm text-muted-foreground mt-1">Acesse sua conta</p>
             </div>
 

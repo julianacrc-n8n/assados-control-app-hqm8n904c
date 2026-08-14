@@ -15,6 +15,7 @@ import {
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useDashboard } from '@/hooks/useDashboard'
+import { useStoreSettings } from '@/hooks/useStoreSettings'
 import { formatBRL, formatNumber } from '@/lib/format'
 import type { Sale } from '@/types'
 
@@ -405,7 +406,7 @@ function LoadingState() {
   )
 }
 
-function WelcomeState() {
+function WelcomeState({ storeName }: { storeName: string }) {
   return (
     <div
       className="flex flex-col items-center justify-center text-center"
@@ -416,7 +417,7 @@ function WelcomeState() {
         className="text-foreground"
         style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '1rem' }}
       >
-        Bem-vindo ao Assados Control!
+        Bem-vindo ao {storeName}!
       </h2>
       <p
         className="text-muted-foreground"
@@ -464,7 +465,11 @@ function ErrorState({ message, onRetry }: { message: string | null; onRetry: () 
 
 export default function DashboardPage() {
   const { metrics, sales, purchases, loading, error, refetch } = useDashboard()
+  const { settings, loading: settingsLoading } = useStoreSettings()
   const [bannerDismissed, setBannerDismissed] = useState(false)
+
+  const storeName =
+    settingsLoading && !settings.id ? 'Minha Loja' : settings.storeName || 'Minha Loja'
 
   const now = new Date()
   const monthName = `${MONTHS_PT_BR[now.getMonth()]} de ${now.getFullYear()}`
@@ -506,7 +511,7 @@ export default function DashboardPage() {
             )}
 
             {isEmpty ? (
-              <WelcomeState />
+              <WelcomeState storeName={storeName} />
             ) : (
               <div
                 className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5"

@@ -20,6 +20,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { useReports } from '@/hooks/useReports'
+import { useStoreSettings } from '@/hooks/useStoreSettings'
 import { listAllSaleItems } from '@/services/sale-items'
 import { listProducts } from '@/services/products'
 import { listPurchases } from '@/services/purchases'
@@ -238,7 +239,7 @@ function buildBarChartHtml(
 }
 
 /** Build the full self-contained HTML document for the printable report. */
-function buildReportHtml(data: ReportData, start: string, end: string): string {
+function buildReportHtml(data: ReportData, start: string, end: string, storeName: string): string {
   const profit = data.totalProfit
   const profitColor = profit > 0 ? '#006600' : profit < 0 ? '#990000' : '#333333'
 
@@ -287,7 +288,7 @@ function buildReportHtml(data: ReportData, start: string, end: string): string {
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8" />
-<title>Relatório Financeiro — Assados Control</title>
+<title>Relatório Financeiro — ${escapeHtml(storeName)}</title>
 <style>
   @page { size: A4; margin: 15mm; }
   * { box-sizing: border-box; }
@@ -313,7 +314,7 @@ function buildReportHtml(data: ReportData, start: string, end: string): string {
 </head>
 <body>
   <div class="header">
-    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:4px;">Assados Control</div>
+    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:4px;">${escapeHtml(storeName)}</div>
     <div style="font-size:14px;font-weight:600;text-align:center;color:#555555;margin-bottom:8px;">Relatório Financeiro</div>
     <div style="font-size:11px;text-align:center;color:#777777;margin-bottom:16px;">Período: ${brDate(start)} a ${brDate(end)}</div>
     <div style="font-size:10px;text-align:right;color:#999999;margin-bottom:16px;">Gerado em: ${generatedAt()}</div>
@@ -384,7 +385,7 @@ function buildReportHtml(data: ReportData, start: string, end: string): string {
 
   <div class="footer">
     <div class="footer-row">
-      <span style="font-size:9px;color:#999999;">Assados Control - Sistema de Gestão</span>
+      <span style="font-size:9px;color:#999999;">${escapeHtml(storeName)} - Sistema de Gestão</span>
       <span style="font-size:9px;color:#999999;text-align:right;">Página 1 de 1</span>
     </div>
     <div class="footer-center" style="font-size:9px;color:#BBBBBB;">Documento gerado automaticamente pelo sistema.</div>
@@ -397,8 +398,8 @@ function buildReportHtml(data: ReportData, start: string, end: string): string {
 </html>`
 }
 
-function exportReportPdf(data: ReportData, start: string, end: string): boolean {
-  const html = buildReportHtml(data, start, end)
+function exportReportPdf(data: ReportData, start: string, end: string, storeName: string): boolean {
+  const html = buildReportHtml(data, start, end, storeName)
   const printWin = window.open('', '_blank', 'width=900,height=1200')
   if (!printWin) return false
   printWin.document.open()
@@ -639,7 +640,7 @@ function buildComparisonChartTextBars(data: ComparisonData): string {
     </div>`
 }
 
-function buildComparisonHtml(data: ComparisonData): string {
+function buildComparisonHtml(data: ComparisonData, storeName: string): string {
   const metrics: { label: string; a: number; b: number }[] = [
     { label: 'Receita Total', a: data.receitaA, b: data.receitaB },
     { label: 'Despesa Total', a: data.despesaA, b: data.despesaB },
@@ -697,7 +698,7 @@ function buildComparisonHtml(data: ComparisonData): string {
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8" />
-<title>Relatório Comparativo — Assados Control</title>
+<title>Relatório Comparativo — ${escapeHtml(storeName)}</title>
 <style>
   @page { size: A4; margin: 15mm; }
   * { box-sizing: border-box; }
@@ -723,7 +724,7 @@ function buildComparisonHtml(data: ComparisonData): string {
 </head>
 <body>
   <div class="header">
-    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:4px;">Assados Control</div>
+    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:4px;">${escapeHtml(storeName)}</div>
     <div style="font-size:14px;font-weight:600;text-align:center;color:#555555;margin-bottom:8px;">Relatório Comparativo</div>
     <div style="font-size:11px;text-align:center;color:#555555;margin-bottom:4px;">Período A: ${brDate(data.startA)} a ${brDate(data.endA)}</div>
     <div style="font-size:11px;text-align:center;color:#555555;margin-bottom:16px;">Período B: ${brDate(data.startB)} a ${brDate(data.endB)}</div>
@@ -774,7 +775,7 @@ function buildComparisonHtml(data: ComparisonData): string {
 
   <div class="footer">
     <div class="footer-row">
-      <span style="font-size:9px;color:#999999;">Assados Control - Sistema de Gestão</span>
+      <span style="font-size:9px;color:#999999;">${escapeHtml(storeName)} - Sistema de Gestão</span>
       <span style="font-size:9px;color:#999999;text-align:right;">Página 1 de 1</span>
     </div>
     <div class="footer-center" style="font-size:9px;color:#BBBBBB;">Documento gerado automaticamente pelo sistema.</div>
@@ -787,8 +788,8 @@ function buildComparisonHtml(data: ComparisonData): string {
 </html>`
 }
 
-function exportComparisonPdf(data: ComparisonData): boolean {
-  const html = buildComparisonHtml(data)
+function exportComparisonPdf(data: ComparisonData, storeName: string): boolean {
+  const html = buildComparisonHtml(data, storeName)
   const printWin = window.open('', '_blank', 'width=900,height=1200')
   if (!printWin) return false
   printWin.document.open()
@@ -2217,7 +2218,10 @@ function comparisonPresetRanges(preset: ComparisonPreset): {
 
 export default function ReportsPage() {
   const { reportData, loading, error, refresh } = useReports()
+  const { settings } = useStoreSettings()
   const { toast } = useToast()
+
+  const storeName = settings.storeName || 'Minha Loja'
 
   // Mode toggle: 'relatorio' (default) or 'comparativo'.
   const [mode, setMode] = useState<ReportMode>('relatorio')
@@ -2297,7 +2301,7 @@ export default function ReportsPage() {
   const handleExportPdf = () => {
     if (!reportData) return
     if (reportData.salesCount === 0 && reportData.purchasesCount === 0) return
-    const ok = exportReportPdf(reportData, activeStart, activeEnd)
+    const ok = exportReportPdf(reportData, activeStart, activeEnd, storeName)
     if (!ok) {
       toast({
         variant: 'destructive',
@@ -2389,7 +2393,7 @@ export default function ReportsPage() {
 
   const handleExportComparisonPdf = () => {
     if (!cmpData) return
-    const ok = exportComparisonPdf(cmpData)
+    const ok = exportComparisonPdf(cmpData, storeName)
     if (!ok) {
       toast({
         variant: 'destructive',

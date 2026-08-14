@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import {
-  Croissant,
   Menu,
   Sun,
   Moon,
@@ -10,10 +9,13 @@ import {
   ShoppingCart,
   ScanLine,
   BarChart3,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
+import { useStoreSettings } from '@/hooks/useStoreSettings'
+import { hexToHSL, hslToString, foregroundForHSL } from '@/lib/color'
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -21,11 +23,47 @@ const navItems = [
   { label: 'Compras', path: '/purchases', icon: ShoppingCart },
   { label: 'PDV', path: '/pos', icon: ScanLine },
   { label: 'Vendas', path: '/sales', icon: ShoppingCart },
+  { label: 'Configurações', path: '/settings', icon: SettingsIcon },
   { label: 'Relatórios', path: '/reports', icon: BarChart3 },
 ]
 
+/** Map a path to a human-readable page name for the document title. */
+function pathToPageName(path: string): string {
+  const item = navItems.find((i) => i.path === path)
+  if (item) return item.label
+  if (path === '/login') return 'Entrar'
+  if (path === '/signup') return 'Criar Conta'
+  return ''
+}
+
+/** Logo + store name shown in the header and mobile drawer. */
+function StoreBrand({ loading }: { loading: boolean }) {
+  const { settings } = useStoreSettings()
+  const name = loading && !settings.id ? 'Carregando...' : settings.storeName || 'Minha Loja'
+  const logo = settings.storeLogoUrl
+
+  if (logo) {
+    return (
+      <span className="flex items-center gap-2 font-bold text-lg">
+        <img src={logo} alt={name} className="h-8 w-auto object-contain" />
+        <span className="font-bold tracking-tight">{name}</span>
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex items-center gap-2 font-bold text-lg">
+      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+        {(name || '?').charAt(0).toUpperCase()}
+      </span>
+      <span className="font-bold tracking-tight">{name}</span>
+    </span>
+  )
+}
+
 export default function Layout() {
   const location = useLocation()
+  const { settings, loading } = useStoreSettings()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -43,6 +81,35 @@ export default function Layout() {
       localStorage.setItem('theme', 'light')
     }
   }, [isDark])
+
+  // Apply the store's primary color to the shadcn theme (HSL custom props).
+  useEffect(() => {
+    const hex = settings.storePrimaryColor
+    const hsl = hex ? hexToHSL(hex) : null
+    if (hsl) {
+      const root = document.documentElement
+      root.style.setProperty('--primary', hslToString(hsl))
+      root.style.setProperty('--primary-foreground', foregroundForHSL(hsl))
+      root.style.setProperty('--ring', hslToString(hsl))
+    } else {
+      // Restore the stylesheet defaults by clearing inline overrides.
+      const root = document.documentElement
+      root.style.removeProperty('--primary')
+      root.style.removeProperty('--primary-foreground')
+      root.style.removeProperty('--ring')
+    }
+  }, [settings.storePrimaryColor])
+
+  // Dynamic document title: "{storeName} — {pageName}".
+  const pageTitle = useMemo(() => {
+    const storeName = loading && !settings.id ? 'Minha Loja' : settings.storeName || 'Minha Loja'
+    const pageName = pathToPageName(location.pathname)
+    return pageName ? `${storeName} — ${pageName}` : storeName
+  }, [settings.storeName, loading, settings.id, location.pathname])
+
+  useEffect(() => {
+    document.title = pageTitle
+  }, [pageTitle])
 
   const toggleTheme = () => {
     setIsDark((prev) => !prev)
@@ -67,9 +134,8 @@ export default function Layout() {
             </SheetTrigger>
             <SheetContent side="left" className="w-64 p-0 pt-4">
               <SheetHeader className="px-4 pb-2 border-b">
-                <SheetTitle className="flex items-center gap-2 font-bold text-lg">
-                  <Croissant className="h-6 w-6 text-primary" />
-                  <span>Assados Control</span>
+                <SheetTitle className="font-bold text-lg">
+                  <StoreBrand loading={loading} />
                 </SheetTitle>
               </SheetHeader>
               <nav className="flex flex-col gap-1 p-3">
@@ -100,10 +166,9 @@ export default function Layout() {
           {/* Logo & Name */}
           <Link
             to="/"
-            className="flex items-center gap-2 font-bold text-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md p-1"
+            className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md p-1"
           >
-            <Croissant className="h-6 w-6 text-primary" />
-            <span className="font-bold tracking-tight">Assados Control</span>
+            <StoreBrand loading={loading} />
           </Link>
         </div>
 

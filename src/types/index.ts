@@ -288,3 +288,41 @@ export interface SaleFilter {
   channel: string
   paymentMethod: string
 }
+
+/**
+ * White-label / store configuration stored in the single-record
+ * `store_settings` collection. All optional fields are `null` until the
+ * user configures them in the Settings page.
+ */
+export interface StoreSettings {
+  id: string
+  /** Store display name (ex: "Assados Control"). Required. */
+  storeName: string
+  /** URL or data URL for the store logo. null = show initial-letter avatar. */
+  storeLogoUrl: string | null
+  /** Phone (ex: "(11) 99999-9999"). */
+  storePhone: string | null
+  /** WhatsApp number, international format without plus (ex: "5511999999999"). */
+  storeWhatsapp: string | null
+  /** Instagram handle without @ (ex: "assadoscontrol"). */
+  storeInstagram: string | null
+  /** Physical address (ex: "Rua das Flores, 123 - Centro"). */
+  storeAddress: string | null
+  /** Thank-you message printed at the bottom of receipts. */
+  storeThankYouMessage: string | null
+  /** Hex color string (ex: "#9D6B37"). null = use default theme. */
+  storePrimaryColor: string | null
+  /** Developer brand name (ex: "Juliana Software"). */
+  devBrandName: string | null
+  /** WhatsApp for dev brand, international format without plus. */
+  devBrandWhatsapp: string | null
+  /** Whether to show the developer brand on printed receipts. */
+  devBrandShowOnReceipt: boolean
+  /** URL the QR Code on the receipt points to. null = use WhatsApp link. */
+  devBrandLandingPageUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Partial settings payload accepted by `useStoreSettings.updateSettings`. */
+export type StoreSettingsInput = Partial<Omit<StoreSettings, 'id' | 'createdAt' | 'updatedAt'>>

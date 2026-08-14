@@ -15,6 +15,7 @@ import type {
   Purchase,
   PurchaseItem,
   Sale,
+  StoreSettings,
 } from '@/types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -125,5 +126,25 @@ export function mapSale(r: any): Sale {
     isStockAdjustment: bool(r.isStockAdjustment, false),
     pickupCode: strOrNull(r.pickupCode),
     orderNotes: strOrNull(r.orderNotes),
+  }
+}
+
+export function mapStoreSettings(r: any): StoreSettings {
+  return {
+    id: str(r.id),
+    storeName: str(r.storeName),
+    storeLogoUrl: strOrNull(r.storeLogoUrl),
+    storePhone: strOrNull(r.storePhone),
+    storeWhatsapp: strOrNull(r.storeWhatsapp),
+    storeInstagram: strOrNull(r.storeInstagram),
+    storeAddress: strOrNull(r.storeAddress),
+    storeThankYouMessage: strOrNull(r.storeThankYouMessage),
+    storePrimaryColor: strOrNull(r.storePrimaryColor),
+    devBrandName: strOrNull(r.devBrandName),
+    devBrandWhatsapp: strOrNull(r.devBrandWhatsapp),
+    devBrandShowOnReceipt: bool(r.devBrandShowOnReceipt, false),
+    devBrandLandingPageUrl: strOrNull(r.devBrandLandingPageUrl),
+    createdAt: date(r.created),
+    updatedAt: date(r.updated),
   }
 }

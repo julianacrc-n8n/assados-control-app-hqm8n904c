@@ -31,10 +31,12 @@ import { PageHeader } from '@/components/PageHeader'
 import { IfoodImportDialog } from '@/components/pos/IfoodImportDialog'
 import { usePOS } from '@/hooks/usePOS'
 import { useProductLookup } from '@/hooks/useProductLookup'
+import { useStoreSettings } from '@/hooks/useStoreSettings'
 import { listActiveProducts, searchActiveProducts } from '@/services/sales'
 import { formatBRL } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { Product, SaleResult } from '@/types'
+import type { Product, SaleResult, StoreSettings } from '@/types'
+import QRCode from 'qrcode'
 
 type PaymentMethod = 'dinheiro' | 'cartao' | 'pix'
 
@@ -92,6 +94,39 @@ function playSuccessBeep(): void {
 export default function PosPage() {
   const pos = usePOS()
   const { findByBarcode } = useProductLookup()
+  const { settings } = useStoreSettings()
+
+  // Pre-generate the developer-branding QR code data URL so it is ready
+  // synchronously when the receipt print popup opens. Recomputed whenever
+  // the dev branding settings change.
+  const [devQrDataUrl, setDevQrDataUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const showDev =
+      !!settings.devBrandShowOnReceipt &&
+      !!settings.devBrandName &&
+      (!!settings.devBrandLandingPageUrl || !!settings.devBrandWhatsapp)
+    if (!showDev) {
+      setDevQrDataUrl(null)
+      return
+    }
+    const target = settings.devBrandLandingPageUrl || `https://wa.me/${settings.devBrandWhatsapp}`
+    QRCode.toDataURL(target, { width: 120, margin: 0 })
+      .then((url: string) => {
+        if (!cancelled) setDevQrDataUrl(url)
+      })
+      .catch(() => {
+        if (!cancelled) setDevQrDataUrl(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    settings.devBrandShowOnReceipt,
+    settings.devBrandName,
+    settings.devBrandLandingPageUrl,
+    settings.devBrandWhatsapp,
+  ])
 
   const barcodeInputRef = useRef<HTMLInputElement>(null)
   const [barcode, setBarcode] = useState('')
@@ -747,7 +782,12 @@ export default function PosPage() {
           <DialogDescription className="sr-only">
             Cupom não fiscal da venda realizada.
           </DialogDescription>
-          <ReceiptContent sale={pos.lastSale} onClose={() => setReceiptOpen(false)} />
+          <ReceiptContent
+            sale={pos.lastSale}
+            settings={settings}
+            devQrDataUrl={devQrDataUrl}
+            onClose={() => setReceiptOpen(false)}
+          />
         </DialogContent>
       </Dialog>
     </section>
@@ -756,8 +796,20 @@ export default function PosPage() {
 
 /* ============================ RECEIPT ============================ */
 
-function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: () => void }) {
+function ReceiptContent({
+  sale,
+  settings,
+  devQrDataUrl,
+  onClose,
+}: {
+  sale: SaleResult | null
+  settings: StoreSettings
+  devQrDataUrl: string | null
+  onClose: () => void
+}) {
   if (!sale) return null
+
+  const storeName = settings.storeName || 'Minha Loja'
 
   return (
     <div
@@ -767,7 +819,8 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
       {/* Copy 1 — VIA CLIENTE */}
       <div style={{ pageBreakAfter: 'always' }}>
         <ViaLabel text="VIA CLIENTE" />
-        <ReceiptBody sale={sale} />
+        <ReceiptBody sale={sale} settings={settings} />
+        <DevBrandingBlock settings={settings} devQrDataUrl={devQrDataUrl} />
       </div>
 
       {/* Cut separator between copies */}
@@ -777,13 +830,18 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
       {/* Copy 2 — VIA BALCÃO */}
       <div>
         <ViaLabel text="VIA BALCÃO" />
-        <ReceiptBody sale={sale} />
+        <ReceiptBody sale={sale} settings={settings} />
         {sale.orderNotes && <ObservacoesSection notes={sale.orderNotes} />}
+        <DevBrandingBlock settings={settings} devQrDataUrl={devQrDataUrl} />
       </div>
 
       {/* Actions */}
       <div className="mt-3 flex gap-2 print:hidden">
-        <Button type="button" className="h-11 flex-1 gap-2" onClick={() => openPrintWindow(sale)}>
+        <Button
+          type="button"
+          className="h-11 flex-1 gap-2"
+          onClick={() => openPrintWindow(sale, settings, devQrDataUrl)}
+        >
           <Printer className="h-4 w-4" />
           Imprimir
         </Button>
@@ -794,6 +852,44 @@ function ReceiptContent({ sale, onClose }: { sale: SaleResult | null; onClose: (
       <p className="text-center text-muted-foreground" style={{ fontSize: '8px' }}>
         Serão impressas 2 vias: Cliente e Balcão.
       </p>
+    </div>
+  )
+}
+
+/** Whether the developer-branding block should render on the receipt. */
+function shouldShowDevBranding(settings: StoreSettings): boolean {
+  return (
+    !!settings.devBrandShowOnReceipt &&
+    !!settings.devBrandName &&
+    (!!settings.devBrandLandingPageUrl || !!settings.devBrandWhatsapp)
+  )
+}
+
+/**
+ * Developer branding block shown at the very bottom of both receipt copies,
+ * after the store contact footer and observações. Renders only when
+ * `shouldShowDevBranding` is true.
+ */
+function DevBrandingBlock({
+  settings,
+  devQrDataUrl,
+}: {
+  settings: StoreSettings
+  devQrDataUrl: string | null
+}) {
+  if (!shouldShowDevBranding(settings)) return null
+  return (
+    <div style={{ marginTop: '6px' }}>
+      <div style={{ borderTop: '1px dashed #ccc', margin: '4px 0' }} />
+      <p style={{ textAlign: 'center', fontSize: '7px', color: '#999' }}>
+        Sistema por {settings.devBrandName}
+      </p>
+      {devQrDataUrl && (
+        <div style={{ textAlign: 'center', margin: '2px auto' }}>
+          <img src={devQrDataUrl} width={60} height={60} alt="QR Code" />
+        </div>
+      )}
+      <p style={{ textAlign: 'center', fontSize: '6px', color: '#999' }}>Saiba mais</p>
     </div>
   )
 }
@@ -856,13 +952,24 @@ function ObservacoesSection({ notes }: { notes: string }) {
 }
 
 /** The full receipt content (store name, date, items, totals, payment, change, thank you, pickup code). */
-function ReceiptBody({ sale }: { sale: SaleResult }) {
+function ReceiptBody({ sale, settings }: { sale: SaleResult; settings: StoreSettings }) {
   const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
   const shortId = sale.saleId.slice(0, 8)
+  const storeName = settings.storeName || 'Minha Loja'
 
   return (
     <>
-      <h2 className="text-center text-base font-bold tracking-tight">Assados Control</h2>
+      {settings.storeLogoUrl ? (
+        <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+          <img
+            src={settings.storeLogoUrl}
+            alt={storeName}
+            style={{ maxWidth: '200px', width: '100%', margin: '0 auto', objectFit: 'contain' }}
+          />
+        </div>
+      ) : (
+        <h2 className="text-center text-base font-bold tracking-tight">{storeName}</h2>
+      )}
       <p className="text-center text-xs text-muted-foreground">Cupom Não Fiscal</p>
       <div className="my-1 border-t border-dashed border-border" />
       <div className="flex justify-between text-xs">
@@ -916,7 +1023,10 @@ function ReceiptBody({ sale }: { sale: SaleResult }) {
         </>
       )}
       <div className="my-1 border-t border-dashed border-border" />
-      <p className="text-center text-xs">Obrigado pela preferência!</p>
+      <p className="text-center text-xs">
+        {settings.storeThankYouMessage || 'Obrigado pela preferência!'}
+      </p>
+      <StoreContactFooter settings={settings} />
       {sale.pickupCode && (
         <div className="mt-2 flex flex-col items-center gap-1">
           <p
@@ -948,12 +1058,29 @@ function ReceiptBody({ sale }: { sale: SaleResult }) {
   )
 }
 
+/** Store contact info block rendered on the receipt below the thank-you line. */
+function StoreContactFooter({ settings }: { settings: StoreSettings }) {
+  return (
+    <div className="mt-1 flex flex-col items-center gap-0.5 text-center text-muted-foreground">
+      {settings.storePhone && <span style={{ fontSize: '9px' }}>{settings.storePhone}</span>}
+      {settings.storeAddress && <span style={{ fontSize: '9px' }}>{settings.storeAddress}</span>}
+      {settings.storeInstagram && (
+        <span style={{ fontSize: '9px' }}>@{settings.storeInstagram}</span>
+      )}
+    </div>
+  )
+}
+
 /**
  * Build the HTML for a single receipt copy body (without the VIA label).
  * When `includeNotes` is true (Via Balcão only), appends the observações
  * section below the pickup code / thank-you line, above the footer.
  */
-function buildReceiptBodyHtmlForCopy(sale: SaleResult, includeNotes: boolean): string {
+function buildReceiptBodyHtmlForCopy(
+  sale: SaleResult,
+  includeNotes: boolean,
+  settings: StoreSettings,
+): string {
   const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
   const shortId = sale.saleId.slice(0, 8)
 
@@ -1009,8 +1136,31 @@ function buildReceiptBodyHtmlForCopy(sale: SaleResult, includeNotes: boolean): s
         <div style="text-align:left;font-size:10px;font-weight:600;background-color:#f0f0f0;padding:4px 6px;border-radius:2px;margin-top:2px;word-break:break-word;">${escapeHtml(sale.orderNotes)}</div>`
       : ''
 
+  const storeName = settings.storeName || 'Minha Loja'
+
+  // Store logo image (if set) replaces the bold store-name header line.
+  const headerHtml = settings.storeLogoUrl
+    ? `<div style="text-align:center;margin-bottom:2mm;"><img src="${escapeHtml(settings.storeLogoUrl)}" alt="${escapeHtml(storeName)}" style="max-width:200px;width:100%;margin:0 auto;object-fit:contain;" /></div>`
+    : `<div class="header">${escapeHtml(storeName)}</div>`
+
+  // Store contact info lines (phone / address / instagram), centered & muted.
+  const contactLines: string[] = []
+  if (settings.storePhone) contactLines.push(escapeHtml(settings.storePhone))
+  if (settings.storeAddress) contactLines.push(escapeHtml(settings.storeAddress))
+  if (settings.storeInstagram) contactLines.push(`@${escapeHtml(settings.storeInstagram)}`)
+  const storeContactHtml = contactLines.length
+    ? contactLines
+        .map(
+          (line) =>
+            `<div style="text-align:center;font-size:9px;color:#666;line-height:1.5;">${line}</div>`,
+        )
+        .join('')
+    : ''
+
+  const thankYou = escapeHtml(settings.storeThankYouMessage || 'Obrigado pela preferência!')
+
   return `
-    <div class="header">Assados Control</div>
+    ${headerHtml}
     <div class="subheader">Cupom Não Fiscal</div>
     <div class="dashed"></div>
     <div class="meta">
@@ -1033,7 +1183,8 @@ function buildReceiptBodyHtmlForCopy(sale: SaleResult, includeNotes: boolean): s
     </div>
     ${cashHtml}
     <div class="dashed"></div>
-    <div class="footer">Obrigado pela preferência!</div>
+    <div class="footer">${thankYou}</div>
+    ${storeContactHtml}
     ${pickupCodeHtml}
     ${orderNotesHtml}`
 }
@@ -1051,7 +1202,14 @@ function viaLabelHtml(text: string): string {
  * descendants from being shown in print. Falls back to `window.print()` when
  * the popup is blocked.
  */
-function openPrintWindow(sale: SaleResult): void {
+function openPrintWindow(
+  sale: SaleResult,
+  settings: StoreSettings,
+  devQrDataUrl: string | null,
+): void {
+  // Developer-branding block HTML (rendered at the bottom of both copies).
+  const devBrandingHtml = buildDevBrandingHtml(settings, devQrDataUrl)
+
   // Copy 1 — VIA CLIENTE (page-break-after: always so A4 printers start
   // Copy 2 on a new page; thermal printers ignore the break and print
   // continuously). No observações on the customer copy.
@@ -1059,7 +1217,8 @@ function openPrintWindow(sale: SaleResult): void {
     <div class="receipt-copy" style="page-break-after:always;">
       ${viaLabelHtml('VIA CLIENTE')}
       <div class="receipt">
-        ${buildReceiptBodyHtmlForCopy(sale, false)}
+        ${buildReceiptBodyHtmlForCopy(sale, false, settings)}
+        ${devBrandingHtml}
         <div class="cut-margin"></div>
       </div>
     </div>`
@@ -1074,7 +1233,8 @@ function openPrintWindow(sale: SaleResult): void {
     <div class="receipt-copy">
       ${viaLabelHtml('VIA BALCÃO')}
       <div class="receipt">
-        ${buildReceiptBodyHtmlForCopy(sale, true)}
+        ${buildReceiptBodyHtmlForCopy(sale, true, settings)}
+        ${devBrandingHtml}
         <div class="cut-margin"></div>
       </div>
     </div>`
@@ -1181,6 +1341,21 @@ function openPrintWindow(sale: SaleResult): void {
   printWin.document.open()
   printWin.document.write(html)
   printWin.document.close()
+}
+
+/** Build the developer-branding HTML block for the printable receipt. */
+function buildDevBrandingHtml(settings: StoreSettings, devQrDataUrl: string | null): string {
+  if (!shouldShowDevBranding(settings)) return ''
+  const qrHtml = devQrDataUrl
+    ? `<div style="text-align:center;margin:2px auto;"><img src="${escapeHtml(devQrDataUrl)}" width="60" height="60" alt="QR Code" /></div>`
+    : ''
+  return `
+    <div style="margin-top:6px;">
+      <div style="border-top:1px dashed #ccc;margin:4px 0;"></div>
+      <div style="text-align:center;font-size:7px;color:#999;">Sistema por ${escapeHtml(settings.devBrandName ?? '')}</div>
+      ${qrHtml}
+      <div style="text-align:center;font-size:6px;color:#999;">Saiba mais</div>
+    </div>`
 }
 
 /** Escape a string for safe insertion into raw HTML. */
