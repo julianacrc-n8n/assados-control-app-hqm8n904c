@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Package,
+  Printer,
   Search,
   SearchX,
   Trash2,
@@ -27,6 +28,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { PageHeader } from '@/components/PageHeader'
 import { DeleteProductDialog } from '@/components/products/DeleteProductDialog'
+import { LabelPrintDialog } from '@/components/products/LabelPrintDialog'
 import { ProductFormSheet } from '@/components/products/ProductFormSheet'
 import { useProducts } from '@/hooks/useProducts'
 import { useBatchProductCost } from '@/hooks/useBatchProductCost'
@@ -66,6 +68,8 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [recipeItems, setRecipeItems] = useState<RecipeItem[]>([])
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
+  // Label printing dialog state
+  const [labelsOpen, setLabelsOpen] = useState(false)
 
   // Pagination
   const [page, setPage] = useState(1)
@@ -167,7 +171,7 @@ export default function ProductsPage() {
       <PageHeader title="Produtos" subtitle="Cadastro e gestão de produtos para venda" />
 
       {/* Toolbar */}
-      <div className="mt-6 mb-6 flex items-center justify-between gap-3">
+      <div className="mt-6 mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="relative w-full md:max-w-[320px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -178,15 +182,28 @@ export default function ProductsPage() {
             aria-label="Buscar produtos"
           />
         </div>
-        <Button
-          onClick={openCreate}
-          disabled={loading}
-          className="h-11 gap-2 px-5 font-semibold transition-all duration-150 hover:brightness-108 active:brightness-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">Cadastrar Produto</span>
-          <span className="sm:hidden">Cadastrar</span>
-        </Button>
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+          <Button
+            variant="outline"
+            onClick={() => setLabelsOpen(true)}
+            disabled={loading || products.length === 0}
+            aria-label="Imprimir etiquetas de código de barras"
+            className="flex h-11 w-full items-center gap-2 px-5 text-sm font-semibold transition-all duration-150 hover:bg-accent/20 sm:w-auto"
+          >
+            <Printer className="h-4 w-4" />
+            <span className="hidden sm:inline">Imprimir Etiquetas</span>
+            <span className="sm:hidden">Etiquetas</span>
+          </Button>
+          <Button
+            onClick={openCreate}
+            disabled={loading}
+            className="h-11 w-full gap-2 px-5 font-semibold transition-all duration-150 hover:brightness-108 active:brightness-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:w-auto"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">Cadastrar Produto</span>
+            <span className="sm:hidden">Cadastrar</span>
+          </Button>
+        </div>
       </div>
 
       {/* Body */}
@@ -320,6 +337,14 @@ export default function ProductsPage() {
           if (!deleteTarget) return
           await deleteProduct(deleteTarget.id)
         }}
+      />
+
+      {/* Label printing */}
+      <LabelPrintDialog
+        open={labelsOpen}
+        onOpenChange={setLabelsOpen}
+        products={products}
+        loading={loading}
       />
     </section>
   )
