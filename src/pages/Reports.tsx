@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   BarChart3,
   Download,
   FileText,
   Filter,
+  GitCompare,
   Loader2,
+  Minus,
   Receipt,
   RefreshCw,
   Store,
@@ -18,9 +20,22 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { useReports } from '@/hooks/useReports'
+import { listAllSaleItems } from '@/services/sale-items'
+import { listProducts } from '@/services/products'
+import { listPurchases } from '@/services/purchases'
+import { listAllSales } from '@/services/sales'
 import { formatBRL, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { DailyPoint, PaymentBreakdown, ReportData, TopProduct } from '@/types'
+import type {
+  DailyPoint,
+  PaymentBreakdown,
+  Product,
+  Purchase,
+  ReportData,
+  Sale,
+  SaleItem,
+  TopProduct,
+} from '@/types'
 
 /* ------------------------------------------------------------------ */
 /* Date helpers                                                        */
@@ -384,6 +399,396 @@ function buildReportHtml(data: ReportData, start: string, end: string): string {
 
 function exportReportPdf(data: ReportData, start: string, end: string): boolean {
   const html = buildReportHtml(data, start, end)
+  const printWin = window.open('', '_blank', 'width=900,height=1200')
+  if (!printWin) return false
+  printWin.document.open()
+  printWin.document.write(html)
+  printWin.document.close()
+  return true
+}
+
+/* ------------------------------------------------------------------ */
+/* Period comparison — data + helpers                                  */
+/* ------------------------------------------------------------------ */
+
+export interface ComparisonProductRow {
+  productName: string
+  quantityA: number
+  revenueA: number
+  quantityB: number
+  revenueB: number
+}
+
+export interface ComparisonData {
+  startA: string
+  endA: string
+  startB: string
+  endB: string
+  receitaA: number
+  receitaB: number
+  despesaA: number
+  despesaB: number
+  comissaoA: number
+  comissaoB: number
+  lucroA: number
+  lucroB: number
+  ticketA: number
+  ticketB: number
+  products: ComparisonProductRow[]
+}
+
+interface PeriodTotals {
+  receita: number
+  despesa: number
+  comissao: number
+  lucro: number
+  ticket: number
+  productMap: Map<string, { quantity: number; revenue: number }>
+  productNameMap: Map<string, string>
+  hasData: boolean
+}
+
+/** A self-contained synchronous period aggregator that reuses the same logic
+ * as useReports but operates on the already-fetched full record sets. This
+ * keeps comparison mode fully client-side without duplicating network calls. */
+function computePeriodTotals(
+  sales: Sale[],
+  purchases: Purchase[],
+  saleItems: SaleItem[],
+  products: Product[],
+  start: string,
+  end: string,
+): PeriodTotals {
+  const periodSales = sales.filter((s) => {
+    if (s.isStockAdjustment) return false
+    const d = String(s.date).slice(0, 10)
+    return d >= start && d <= end
+  })
+  const periodPurchases = purchases.filter((p) => {
+    const d = String(p.date).slice(0, 10)
+    return d >= start && d <= end
+  })
+  const saleIdSet = new Set(periodSales.map((s) => s.id))
+  const periodSaleItems = saleItems.filter((si) => saleIdSet.has(si.saleId))
+
+  const receita = periodSales.reduce((sum, s) => sum + (s.total || 0), 0)
+  const despesa = periodPurchases.reduce((sum, p) => sum + (p.total || 0), 0)
+  const comissao = periodSales.reduce(
+    (sum, s) => sum + (s.ifoodCommission != null && s.ifoodCommission > 0 ? s.ifoodCommission : 0),
+    0,
+  )
+  const ticket = periodSales.length > 0 ? receita / periodSales.length : 0
+
+  const productMap = new Map<string, { quantity: number; revenue: number }>()
+  for (const item of periodSaleItems) {
+    if (!item.productId) continue
+    const cur = productMap.get(item.productId) ?? { quantity: 0, revenue: 0 }
+    cur.quantity += item.quantity || 0
+    cur.revenue += (item.quantity || 0) * (item.unitPrice || 0)
+    productMap.set(item.productId, cur)
+  }
+  const productNameMap = new Map<string, string>()
+  for (const p of products) productNameMap.set(p.id, p.name)
+
+  return {
+    receita,
+    despesa,
+    comissao,
+    lucro: receita - despesa - comissao,
+    ticket,
+    productMap,
+    productNameMap,
+    hasData: periodSales.length > 0 || periodPurchases.length > 0,
+  }
+}
+
+/** Build the full ComparisonData for two periods. */
+function buildComparisonData(
+  sales: Sale[],
+  purchases: Purchase[],
+  saleItems: SaleItem[],
+  products: Product[],
+  startA: string,
+  endA: string,
+  startB: string,
+  endB: string,
+): ComparisonData {
+  const a = computePeriodTotals(sales, purchases, saleItems, products, startA, endA)
+  const b = computePeriodTotals(sales, purchases, saleItems, products, startB, endB)
+
+  // Union of top-10 product ids from EITHER period, ranked by quantity of A
+  // then B as a stable tiebreaker.
+  const topA = Array.from(a.productMap.entries())
+    .sort(([, x], [, y]) => y.quantity - x.quantity)
+    .slice(0, 10)
+    .map(([id]) => id)
+  const topB = Array.from(b.productMap.entries())
+    .sort(([, x], [, y]) => y.quantity - x.quantity)
+    .slice(0, 10)
+    .map(([id]) => id)
+  const unionIds = Array.from(new Set([...topA, ...topB]))
+
+  const products2: ComparisonProductRow[] = unionIds
+    .map((id) => {
+      const pa = a.productMap.get(id) ?? { quantity: 0, revenue: 0 }
+      const pb = b.productMap.get(id) ?? { quantity: 0, revenue: 0 }
+      const name = a.productNameMap.get(id) ?? b.productNameMap.get(id) ?? 'Produto removido'
+      return {
+        productName: name,
+        quantityA: pa.quantity,
+        revenueA: pa.revenue,
+        quantityB: pb.quantity,
+        revenueB: pb.revenue,
+      }
+    })
+    .sort((x, y) => y.quantityA + y.quantityB - (x.quantityA + x.quantityB))
+
+  return {
+    startA,
+    endA,
+    startB,
+    endB,
+    receitaA: a.receita,
+    receitaB: b.receita,
+    despesaA: a.despesa,
+    despesaB: b.despesa,
+    comissaoA: a.comissao,
+    comissaoB: b.comissao,
+    lucroA: a.lucro,
+    lucroB: b.lucro,
+    ticketA: a.ticket,
+    ticketB: b.ticket,
+    products: products2,
+  }
+}
+
+/** Variation descriptor for a single metric between period A and B. */
+interface Variation {
+  diff: number
+  pct: number | null
+  direction: 'up' | 'down' | 'equal' | 'noB'
+}
+
+function computeVariation(a: number, b: number): Variation {
+  if (b === 0) {
+    return { diff: a - b, pct: null, direction: a === 0 ? 'equal' : 'noB' }
+  }
+  const diff = a - b
+  const pct = (diff / Math.abs(b)) * 100
+  const direction = diff > 0 ? 'up' : diff < 0 ? 'down' : 'equal'
+  return { diff, pct, direction }
+}
+
+/** Format a signed currency delta, e.g. "+R$ 120,00" / "-R$ 30,50". */
+function formatSignedBRL(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  return `${sign}${formatBRL(Math.abs(value))}`
+}
+
+/** Format a signed percentage, e.g. "+12,3%" / "-5,0%". */
+function formatSignedPct(pct: number | null): string {
+  if (pct === null) return '—'
+  const sign = pct > 0 ? '+' : pct < 0 ? '-' : ''
+  return `${sign}${Math.abs(pct).toLocaleString('pt-BR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`
+}
+
+/* ------------------------------------------------------------------ */
+/* Comparison PDF export                                                */
+/* ------------------------------------------------------------------ */
+
+function buildComparisonChartTextBars(data: ComparisonData): string {
+  const values = [
+    { label: 'Receitas', a: data.receitaA, b: data.receitaB, color: '#006600' },
+    { label: 'Despesas', a: data.despesaA, b: data.despesaB, color: '#990000' },
+    { label: 'Comissão iFood', a: data.comissaoA, b: data.comissaoB, color: '#cc7a00' },
+  ]
+  const max = Math.max(1, ...values.map((v) => v.a), ...values.map((v) => v.b))
+
+  const rows = values
+    .map((v) => {
+      const wA = Math.max((v.a / max) * 260, v.a > 0 ? 1 : 0)
+      const wB = Math.max((v.b / max) * 260, v.b > 0 ? 1 : 0)
+      return `
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10px;font-weight:600;color:#333333;margin-bottom:3px;">${escapeHtml(v.label)}</div>
+        <div style="display:flex;align-items:center;margin-bottom:2px;">
+          <span style="width:60px;font-size:9px;color:#555555;flex-shrink:0;">Período A</span>
+          <div style="height:10px;background-color:${v.color};width:${wA}px;border-radius:2px;"></div>
+          ${v.a > 0 ? `<span style="font-size:9px;color:#333333;margin-left:4px;">${brl(v.a)}</span>` : '<span style="font-size:9px;color:#999999;margin-left:4px;">—</span>'}
+        </div>
+        <div style="display:flex;align-items:center;">
+          <span style="width:60px;font-size:9px;color:#555555;flex-shrink:0;">Período B</span>
+          <div style="height:10px;background-color:${v.color};width:${wB}px;border-radius:2px;opacity:0.7;"></div>
+          ${v.b > 0 ? `<span style="font-size:9px;color:#333333;margin-left:4px;">${brl(v.b)}</span>` : '<span style="font-size:9px;color:#999999;margin-left:4px;">—</span>'}
+        </div>
+      </div>`
+    })
+    .join('')
+
+  return `
+    <div style="page-break-inside:avoid;">
+      ${rows}
+      <div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:#555555;">
+        <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#006600;"></span>Receitas</span>
+        <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#990000;"></span>Despesas</span>
+        <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#cc7a00;"></span>Comissão iFood</span>
+      </div>
+    </div>`
+}
+
+function buildComparisonHtml(data: ComparisonData): string {
+  const metrics: { label: string; a: number; b: number }[] = [
+    { label: 'Receita Total', a: data.receitaA, b: data.receitaB },
+    { label: 'Despesa Total', a: data.despesaA, b: data.despesaB },
+    { label: 'Comissão iFood', a: data.comissaoA, b: data.comissaoB },
+    { label: 'Lucro Líquido', a: data.lucroA, b: data.lucroB },
+    { label: 'Ticket Médio', a: data.ticketA, b: data.ticketB },
+  ]
+  const cardsRow = metrics
+    .map((m) => {
+      const v = computeVariation(m.a, m.b)
+      const varColor =
+        v.direction === 'up' ? '#006600' : v.direction === 'down' ? '#990000' : '#333333'
+      const varText =
+        v.direction === 'noB'
+          ? 'Sem dados no período B'
+          : `${formatSignedBRL(v.diff)} (${formatSignedPct(v.pct)})`
+      return `
+        <tr>
+          <td style="padding:8px 6px;text-align:left;font-size:11px;font-weight:600;">${escapeHtml(m.label)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;">${brl(m.a)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;">${brl(m.b)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:${varColor};">${escapeHtml(varText)}</td>
+        </tr>`
+    })
+    .join('')
+
+  const chartHtml = buildComparisonChartTextBars(data)
+
+  const productsHtml =
+    data.products.length === 0
+      ? `<tr><td colspan="7" style="padding:12px;text-align:center;color:#777777;font-size:11px;">Nenhum produto vendido nos períodos.</td></tr>`
+      : data.products
+          .map((p, idx) => {
+            const vQ = computeVariation(p.quantityA, p.quantityB)
+            const qColor =
+              vQ.direction === 'up' ? '#006600' : vQ.direction === 'down' ? '#990000' : '#333333'
+            const qText =
+              vQ.direction === 'noB'
+                ? '—'
+                : `${vQ.diff > 0 ? '+' : vQ.diff < 0 ? '-' : ''}${Math.abs(vQ.diff)} (${formatSignedPct(vQ.pct)})`
+            return `
+        <tr style="background-color:${idx % 2 === 1 ? '#F9F9F9' : '#FFFFFF'};">
+          <td style="padding:6px 10px;text-align:center;font-weight:700;color:#333333;font-size:11px;width:30px;">${idx + 1}</td>
+          <td style="padding:6px 10px;text-align:left;font-size:11px;">${escapeHtml(p.productName)}</td>
+          <td style="padding:6px 10px;text-align:center;font-variant-numeric:tabular-nums;font-size:11px;">${formatNumber(p.quantityA)}</td>
+          <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px;">${brl(p.revenueA)}</td>
+          <td style="padding:6px 10px;text-align:center;font-variant-numeric:tabular-nums;font-size:11px;">${formatNumber(p.quantityB)}</td>
+          <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px;">${brl(p.revenueB)}</td>
+          <td style="padding:6px 10px;text-align:center;font-size:10px;color:${qColor};">${escapeHtml(qText)}</td>
+        </tr>`
+          })
+          .join('')
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Relatório Comparativo — Assados Control</title>
+<style>
+  @page { size: A4; margin: 15mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    color: #000000;
+    background: #ffffff;
+    line-height: 1.5;
+    padding: 0;
+    margin: 0;
+  }
+  h2 { margin: 0; }
+  table { width: 100%; border-collapse: collapse; border: 1px solid #CCCCCC; }
+  .section-title { font-size: 14px; font-weight: 700; margin-top: 16px; margin-bottom: 8px; }
+  .avoid-break { page-break-inside: avoid; }
+  th { background: #333333; color: #ffffff; font-weight: 600; font-size: 11px; padding: 6px 10px; text-align: center; }
+  .header { border-bottom: 2px solid #333333; padding-bottom: 12px; margin-bottom: 4px; }
+  .footer { border-top: 2px solid #333333; margin-top: 20px; padding-top: 8px; }
+  .footer-row { display: flex; justify-content: space-between; }
+  .footer-center { text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:4px;">Assados Control</div>
+    <div style="font-size:14px;font-weight:600;text-align:center;color:#555555;margin-bottom:8px;">Relatório Comparativo</div>
+    <div style="font-size:11px;text-align:center;color:#555555;margin-bottom:4px;">Período A: ${brDate(data.startA)} a ${brDate(data.endA)}</div>
+    <div style="font-size:11px;text-align:center;color:#555555;margin-bottom:16px;">Período B: ${brDate(data.startB)} a ${brDate(data.endB)}</div>
+    <div style="font-size:10px;text-align:right;color:#999999;margin-bottom:16px;">Gerado em: ${generatedAt()}</div>
+  </div>
+
+  <div class="avoid-break">
+    <div class="section-title">Comparativo de Indicadores</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:left;">Indicador</th>
+          <th>Período A</th>
+          <th>Período B</th>
+          <th>Variação</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${cardsRow}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="avoid-break">
+    <div class="section-title">Comparativo de Receitas, Despesas e Comissão</div>
+    ${chartHtml}
+  </div>
+
+  <div class="avoid-break">
+    <div class="section-title">Produtos Mais Vendidos — Comparativo</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:center;width:30px;">#</th>
+          <th style="text-align:left;">Produto</th>
+          <th>Qtd A</th>
+          <th>Receita A</th>
+          <th>Qtd B</th>
+          <th>Receita B</th>
+          <th>Variação Qtd</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${productsHtml}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    <div class="footer-row">
+      <span style="font-size:9px;color:#999999;">Assados Control - Sistema de Gestão</span>
+      <span style="font-size:9px;color:#999999;text-align:right;">Página 1 de 1</span>
+    </div>
+    <div class="footer-center" style="font-size:9px;color:#BBBBBB;">Documento gerado automaticamente pelo sistema.</div>
+  </div>
+
+  <script>
+    setTimeout(function () { window.print(); }, 250);
+  </script>
+</body>
+</html>`
+}
+
+function exportComparisonPdf(data: ComparisonData): boolean {
+  const html = buildComparisonHtml(data)
   const printWin = window.open('', '_blank', 'width=900,height=1200')
   if (!printWin) return false
   printWin.document.open()
@@ -1130,12 +1535,692 @@ function QuickFilterButton({
 }
 
 /* ------------------------------------------------------------------ */
+/* Comparison mode — view components                                   */
+/* ------------------------------------------------------------------ */
+
+const METRIC_LABELS = {
+  receita: 'Receita Total',
+  despesa: 'Despesa Total',
+  comissao: 'Comissão iFood',
+  lucro: 'Lucro Líquido',
+  ticket: 'Ticket Médio',
+} as const
+
+interface ComparisonCardProps {
+  label: string
+  valueA: number
+  valueB: number
+}
+
+function ComparisonCard({ label, valueA, valueB }: ComparisonCardProps) {
+  const v = computeVariation(valueA, valueB)
+  const TrendIcon =
+    v.direction === 'up' ? TrendingUp : v.direction === 'down' ? TrendingDown : Minus
+  const trendColor =
+    v.direction === 'up'
+      ? 'text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,55%)]'
+      : v.direction === 'down'
+        ? 'text-destructive'
+        : 'text-muted-foreground'
+
+  return (
+    <article
+      aria-label={label}
+      className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card"
+      style={{ padding: '1.5rem' }}
+    >
+      <span
+        className="text-muted-foreground"
+        style={{
+          fontSize: '0.8125rem',
+          fontWeight: 500,
+          textTransform: 'uppercase',
+          letterSpacing: '0.03em',
+        }}
+      >
+        {label}
+      </span>
+
+      <div className="grid grid-cols-2 gap-2">
+        {/* Period A */}
+        <div className="flex flex-col">
+          <span
+            className="text-muted-foreground"
+            style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase' }}
+          >
+            Período A
+          </span>
+          <span
+            className="tabular-nums text-foreground"
+            style={{ fontSize: '1.25rem', fontWeight: 700, lineHeight: 1.2, marginTop: '0.25rem' }}
+          >
+            {formatBRL(valueA)}
+          </span>
+        </div>
+        {/* Period B */}
+        <div className="flex flex-col border-l border-border pl-2">
+          <span
+            className="text-muted-foreground"
+            style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase' }}
+          >
+            Período B
+          </span>
+          <span
+            className="tabular-nums text-foreground"
+            style={{ fontSize: '1.25rem', fontWeight: 700, lineHeight: 1.2, marginTop: '0.25rem' }}
+          >
+            {formatBRL(valueB)}
+          </span>
+        </div>
+      </div>
+
+      {/* Variation */}
+      <div
+        className="flex items-center gap-1.5 border-t border-border pt-2"
+        style={{ marginTop: '0.25rem' }}
+      >
+        {v.direction === 'noB' ? (
+          <span className="text-muted-foreground" style={{ fontSize: '0.75rem' }}>
+            Sem dados no período B
+          </span>
+        ) : (
+          <>
+            <TrendIcon className={cn('h-4 w-4', trendColor)} />
+            <span
+              className={cn('tabular-nums', trendColor)}
+              style={{ fontSize: '0.8125rem', fontWeight: 600 }}
+            >
+              {formatSignedBRL(v.diff)}
+            </span>
+            <span className={cn('tabular-nums', trendColor)} style={{ fontSize: '0.75rem' }}>
+              ({formatSignedPct(v.pct)})
+            </span>
+          </>
+        )}
+      </div>
+    </article>
+  )
+}
+
+function ComparisonCardSkeleton() {
+  return (
+    <article
+      className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card"
+      style={{ padding: '1.5rem' }}
+      aria-hidden="true"
+    >
+      <div className="h-[0.8125rem] w-[60%] animate-pulse rounded bg-muted" />
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-1">
+          <div className="h-[0.6875rem] w-[50%] animate-pulse rounded bg-muted" />
+          <div className="h-[1.25rem] w-[80%] animate-pulse rounded bg-muted" />
+        </div>
+        <div className="flex flex-col gap-1 border-l border-border pl-2">
+          <div className="h-[0.6875rem] w-[50%] animate-pulse rounded bg-muted" />
+          <div className="h-[1.25rem] w-[80%] animate-pulse rounded bg-muted" />
+        </div>
+      </div>
+      <div className="h-[0.8125rem] w-[70%] animate-pulse rounded bg-muted border-t border-border pt-2" />
+    </article>
+  )
+}
+
+/* Comparison grouped bar chart */
+interface ComparisonChartProps {
+  data: ComparisonData
+}
+
+function ComparisonChart({ data }: ComparisonChartProps) {
+  const groups = [
+    { label: 'Receitas', a: data.receitaA, b: data.receitaB, color: 'hsl(142 70% 45%)' },
+    { label: 'Despesas', a: data.despesaA, b: data.despesaB, color: 'var(--destructive)' },
+    { label: 'Comissão iFood', a: data.comissaoA, b: data.comissaoB, color: 'hsl(30 80% 50%)' },
+  ]
+  const max = useMemo(() => {
+    const m = Math.max(1, ...groups.map((g) => g.a), ...groups.map((g) => g.b))
+    return m > 0 ? m : 1
+  }, [groups])
+
+  return (
+    <div>
+      <div
+        className="flex items-end justify-around gap-3"
+        style={{ height: 280, overflowX: 'auto', padding: '1rem 0' }}
+        role="img"
+        aria-label="Comparativo de receitas, despesas e comissão iFood entre os dois períodos"
+      >
+        {groups.map((g) => {
+          const aH = Math.max((g.a / max) * 100, g.a > 0 ? 4 / 2.8 : 0)
+          const bH = Math.max((g.b / max) * 100, g.b > 0 ? 4 / 2.8 : 0)
+          return (
+            <div
+              key={g.label}
+              className="flex min-w-[4rem] flex-col items-center"
+              style={{ height: '100%' }}
+            >
+              <div className="flex w-full flex-1 items-end justify-center gap-2">
+                {/* Period A bar */}
+                <div className="flex h-full flex-col items-center justify-end">
+                  {g.a > 0 && (
+                    <span
+                      className="text-muted-foreground tabular-nums"
+                      style={{ fontSize: '0.625rem', lineHeight: 1 }}
+                    >
+                      {formatBRL(g.a)}
+                    </span>
+                  )}
+                  <div
+                    className="w-[14px] rounded-t sm:w-[20px]"
+                    style={{
+                      height: `${aH}%`,
+                      backgroundColor: g.color,
+                      minHeight: g.a > 0 ? 4 : 0,
+                    }}
+                    title={`Período A — ${g.label}: ${formatBRL(g.a)}`}
+                  />
+                </div>
+                {/* Period B bar */}
+                <div className="flex h-full flex-col items-center justify-end">
+                  {g.b > 0 && (
+                    <span
+                      className="text-muted-foreground tabular-nums"
+                      style={{ fontSize: '0.625rem', lineHeight: 1 }}
+                    >
+                      {formatBRL(g.b)}
+                    </span>
+                  )}
+                  <div
+                    className="w-[14px] rounded-t sm:w-[20px]"
+                    style={{
+                      height: `${bH}%`,
+                      backgroundColor: g.color,
+                      opacity: 0.55,
+                      minHeight: g.b > 0 ? 4 : 0,
+                    }}
+                    title={`Período B — ${g.label}: ${formatBRL(g.b)}`}
+                  />
+                </div>
+              </div>
+              <span
+                className="text-center text-muted-foreground"
+                style={{ fontSize: '0.6875rem', marginTop: '0.5rem', whiteSpace: 'nowrap' }}
+              >
+                {g.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4" style={{ marginTop: '0.75rem' }}>
+        <span
+          className="flex items-center gap-2 text-muted-foreground"
+          style={{ fontSize: '0.75rem' }}
+        >
+          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: 'hsl(142 70% 45%)' }} />
+          Receitas
+        </span>
+        <span
+          className="flex items-center gap-2 text-muted-foreground"
+          style={{ fontSize: '0.75rem' }}
+        >
+          <span
+            className="h-3 w-3 rounded-full"
+            style={{ backgroundColor: 'var(--destructive)' }}
+          />
+          Despesas
+        </span>
+        <span
+          className="flex items-center gap-2 text-muted-foreground"
+          style={{ fontSize: '0.75rem' }}
+        >
+          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: 'hsl(30 80% 50%)' }} />
+          Comissão iFood
+        </span>
+        <span
+          className="flex items-center gap-2 text-muted-foreground"
+          style={{ fontSize: '0.75rem', marginLeft: 'auto' }}
+        >
+          <span className="h-3 w-3 rounded-full bg-foreground" />
+          Período A
+        </span>
+        <span
+          className="flex items-center gap-2 text-muted-foreground"
+          style={{ fontSize: '0.75rem' }}
+        >
+          <span className="h-3 w-3 rounded-full bg-foreground" style={{ opacity: 0.55 }} />
+          Período B
+        </span>
+      </div>
+
+      <table className="sr-only">
+        <caption>Comparativo de receitas, despesas e comissão iFood</caption>
+        <thead>
+          <tr>
+            <th>Indicador</th>
+            <th>Período A</th>
+            <th>Período B</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => (
+            <tr key={g.label}>
+              <td>{g.label}</td>
+              <td>{formatBRL(g.a)}</td>
+              <td>{formatBRL(g.b)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/* Comparison top products table */
+function ComparisonProductsTable({ rows }: { rows: ComparisonProductRow[] }) {
+  return (
+    <>
+      {/* Desktop table */}
+      <div className="hidden overflow-x-auto rounded-[var(--radius)] border border-border bg-card sm:block">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-muted" style={{ height: '3rem' }}>
+              {[
+                'Posição',
+                'Produto',
+                'Qtd A',
+                'Receita A',
+                'Qtd B',
+                'Receita B',
+                'Variação Qtd',
+                'Variação Receita',
+              ].map((h, i) => (
+                <th
+                  key={h}
+                  className={cn(
+                    'text-muted-foreground',
+                    i === 0 || i === 1
+                      ? 'text-left'
+                      : i === 2 || i === 4
+                        ? 'text-center'
+                        : 'text-right',
+                  )}
+                  style={{
+                    padding: '0 0.75rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p, idx) => {
+              const vQ = computeVariation(p.quantityA, p.quantityB)
+              const vR = computeVariation(p.revenueA, p.revenueB)
+              const qColor =
+                vQ.direction === 'up'
+                  ? 'text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,55%)]'
+                  : vQ.direction === 'down'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
+              const rColor =
+                vR.direction === 'up'
+                  ? 'text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,55%)]'
+                  : vR.direction === 'down'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
+              const QIcon =
+                vQ.direction === 'up' ? TrendingUp : vQ.direction === 'down' ? TrendingDown : Minus
+              const RIcon =
+                vR.direction === 'up' ? TrendingUp : vR.direction === 'down' ? TrendingDown : Minus
+              return (
+                <tr
+                  key={`${p.productName}-${idx}`}
+                  className={cn(
+                    'border-t border-border transition-colors duration-150 hover:bg-muted/50',
+                    idx % 2 === 1 ? 'bg-muted/30' : 'bg-card',
+                  )}
+                  style={{ height: '3.5rem' }}
+                >
+                  <td
+                    className="text-primary tabular-nums"
+                    style={{
+                      padding: '0 0.75rem',
+                      fontSize: '0.875rem',
+                      fontWeight: 700,
+                      width: 60,
+                    }}
+                  >
+                    {idx + 1}
+                  </td>
+                  <td
+                    className="text-foreground"
+                    style={{ padding: '0 0.75rem', fontSize: '0.875rem', fontWeight: 500 }}
+                  >
+                    {p.productName}
+                  </td>
+                  <td
+                    className="text-center text-foreground tabular-nums"
+                    style={{ padding: '0 0.75rem', fontSize: '0.875rem' }}
+                  >
+                    {formatNumber(p.quantityA)}
+                  </td>
+                  <td
+                    className="text-right text-foreground tabular-nums"
+                    style={{ padding: '0 0.75rem', fontSize: '0.875rem', fontWeight: 600 }}
+                  >
+                    {formatBRL(p.revenueA)}
+                  </td>
+                  <td
+                    className="text-center text-foreground tabular-nums"
+                    style={{ padding: '0 0.75rem', fontSize: '0.875rem' }}
+                  >
+                    {formatNumber(p.quantityB)}
+                  </td>
+                  <td
+                    className="text-right text-foreground tabular-nums"
+                    style={{ padding: '0 0.75rem', fontSize: '0.875rem', fontWeight: 600 }}
+                  >
+                    {formatBRL(p.revenueB)}
+                  </td>
+                  <td
+                    className={cn('text-right tabular-nums', qColor)}
+                    style={{ padding: '0 0.75rem', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <QIcon className="h-3.5 w-3.5" />
+                      {vQ.direction === 'noB'
+                        ? '—'
+                        : `${vQ.diff > 0 ? '+' : vQ.diff < 0 ? '-' : ''}${formatNumber(Math.abs(vQ.diff))} (${formatSignedPct(vQ.pct)})`}
+                    </span>
+                  </td>
+                  <td
+                    className={cn('text-right tabular-nums', rColor)}
+                    style={{ padding: '0 0.75rem', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <RIcon className="h-3.5 w-3.5" />
+                      {vR.direction === 'noB'
+                        ? 'Sem dados no período B'
+                        : `${formatSignedBRL(vR.diff)} (${formatSignedPct(vR.pct)})`}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="flex flex-col gap-2 sm:hidden">
+        {rows.map((p, idx) => {
+          const vQ = computeVariation(p.quantityA, p.quantityB)
+          const vR = computeVariation(p.revenueA, p.revenueB)
+          const qColor =
+            vQ.direction === 'up'
+              ? 'text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,55%)]'
+              : vQ.direction === 'down'
+                ? 'text-destructive'
+                : 'text-muted-foreground'
+          const rColor =
+            vR.direction === 'up'
+              ? 'text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,55%)]'
+              : vR.direction === 'down'
+                ? 'text-destructive'
+                : 'text-muted-foreground'
+          const QIcon =
+            vQ.direction === 'up' ? TrendingUp : vQ.direction === 'down' ? TrendingDown : Minus
+          const RIcon =
+            vR.direction === 'up' ? TrendingUp : vR.direction === 'down' ? TrendingDown : Minus
+          return (
+            <div
+              key={`${p.productName}-${idx}`}
+              className="flex flex-col gap-2 rounded-[var(--radius)] border border-border bg-card"
+              style={{ padding: '1rem' }}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-primary"
+                  style={{
+                    fontSize: '0.8125rem',
+                    fontWeight: 700,
+                    backgroundColor: 'hsl(var(--primary) / 0.15)',
+                  }}
+                >
+                  {idx + 1}
+                </span>
+                <span className="text-foreground" style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                  {p.productName}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div
+                  className="rounded-[var(--radius)] bg-muted/30"
+                  style={{ padding: '0.5rem 0.625rem' }}
+                >
+                  <div
+                    className="text-muted-foreground"
+                    style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase' }}
+                  >
+                    Período A
+                  </div>
+                  <div
+                    className="text-foreground tabular-nums"
+                    style={{ fontSize: '0.8125rem', fontWeight: 600 }}
+                  >
+                    {formatNumber(p.quantityA)} un.
+                  </div>
+                  <div className="text-foreground tabular-nums" style={{ fontSize: '0.75rem' }}>
+                    {formatBRL(p.revenueA)}
+                  </div>
+                </div>
+                <div
+                  className="rounded-[var(--radius)] bg-muted/30"
+                  style={{ padding: '0.5rem 0.625rem' }}
+                >
+                  <div
+                    className="text-muted-foreground"
+                    style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase' }}
+                  >
+                    Período B
+                  </div>
+                  <div
+                    className="text-foreground tabular-nums"
+                    style={{ fontSize: '0.8125rem', fontWeight: 600 }}
+                  >
+                    {formatNumber(p.quantityB)} un.
+                  </div>
+                  <div className="text-foreground tabular-nums" style={{ fontSize: '0.75rem' }}>
+                    {formatBRL(p.revenueB)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1 border-t border-border pt-2">
+                <span
+                  className={cn('inline-flex items-center gap-1 tabular-nums', qColor)}
+                  style={{ fontSize: '0.75rem' }}
+                >
+                  <QIcon className="h-3.5 w-3.5" />
+                  Var. Qtd:{' '}
+                  {vQ.direction === 'noB'
+                    ? '—'
+                    : `${vQ.diff > 0 ? '+' : vQ.diff < 0 ? '-' : ''}${formatNumber(Math.abs(vQ.diff))} (${formatSignedPct(vQ.pct)})`}
+                </span>
+                <span
+                  className={cn('inline-flex items-center gap-1 tabular-nums', rColor)}
+                  style={{ fontSize: '0.75rem' }}
+                >
+                  <RIcon className="h-3.5 w-3.5" />
+                  Var. Receita:{' '}
+                  {vR.direction === 'noB'
+                    ? 'Sem dados no período B'
+                    : `${formatSignedBRL(vR.diff)} (${formatSignedPct(vR.pct)})`}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+function ComparisonProductsSkeleton() {
+  return (
+    <>
+      <div
+        className="hidden overflow-hidden rounded-[var(--radius)] border border-border bg-card sm:block"
+        aria-hidden="true"
+      >
+        <table className="w-full">
+          <thead>
+            <tr className="bg-muted" style={{ height: '3rem' }}>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <th key={i} style={{ padding: '0 0.75rem' }} />
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[0, 1, 2, 3].map((i) => (
+              <tr key={i} className="border-t border-border" style={{ height: '3.5rem' }}>
+                {Array.from({ length: 8 }).map((_, j) => (
+                  <td key={j} style={{ padding: '0 0.75rem' }}>
+                    <div className="h-4 w-12 animate-pulse rounded bg-muted" />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex flex-col gap-2 sm:hidden" aria-hidden="true">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-2 rounded-[var(--radius)] border border-border bg-card"
+            style={{ padding: '1rem' }}
+          >
+            <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="h-16 animate-pulse rounded bg-muted/40" />
+              <div className="h-16 animate-pulse rounded bg-muted/40" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/* Comparison empty / loading / error states */
+function ComparisonEmptyState() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center"
+      style={{ padding: '3rem 1.5rem', minHeight: 400 }}
+    >
+      <GitCompare className="h-16 w-16 text-muted-foreground" style={{ marginBottom: '1.5rem' }} />
+      <h2 className="text-foreground" style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+        Sem dados para comparar
+      </h2>
+      <p className="text-muted-foreground" style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
+        Não há vendas ou compras registradas nos períodos selecionados.
+      </p>
+      <p
+        className="italic text-muted-foreground"
+        style={{ fontSize: '0.8125rem', marginTop: '0.75rem' }}
+      >
+        Ajuste os períodos e gere o comparativo novamente.
+      </p>
+    </div>
+  )
+}
+
+function ComparisonLoading() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <ComparisonCardSkeleton key={i} />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6" style={{ marginTop: '2rem' }}>
+        <ChartCard title="Comparativo de Receitas, Despesas e Comissão">
+          <ChartSkeleton />
+        </ChartCard>
+      </div>
+      <div style={{ marginTop: '2rem' }}>
+        <h2 className="text-foreground" style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+          Produtos Mais Vendidos — Comparativo
+        </h2>
+        <div style={{ marginTop: '1rem' }}>
+          <ComparisonProductsSkeleton />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
+
+type ReportMode = 'relatorio' | 'comparativo'
+
+/** Shift a [start, end] range backwards by its own length (immediately
+ * preceding period of the same length). Returns a new range. */
+function precedingRange(start: string, end: string): { start: string; end: string } {
+  const startMs = new Date(`${start}T00:00:00`).getTime()
+  const endMs = new Date(`${end}T00:00:00`).getTime()
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) {
+    return { start, end }
+  }
+  const dayMs = 86400000
+  const lengthDays = Math.round((endMs - startMs) / dayMs)
+  const newEndMs = startMs - dayMs
+  const newStartMs = newEndMs - lengthDays * dayMs
+  const toYmd = (ms: number) => {
+    const d = new Date(ms)
+    return toYMD(d)
+  }
+  return { start: toYmd(newStartMs), end: toYmd(newEndMs) }
+}
+
+type ComparisonPreset = 'semana' | 'mes' | '30dias'
+
+function comparisonPresetRanges(preset: ComparisonPreset): {
+  startA: string
+  endA: string
+  startB: string
+  endB: string
+} {
+  const today = todayYMD()
+  let startA: string
+  // endA is always "today" for these presets.
+  if (preset === 'semana') {
+    startA = daysAgoYMD(6)
+  } else if (preset === 'mes') {
+    startA = firstDayOfMonthYMD()
+  } else {
+    startA = daysAgoYMD(29)
+  }
+  const b = precedingRange(startA, today)
+  return { startA, endA: today, startB: b.start, endB: b.end }
+}
 
 export default function ReportsPage() {
   const { reportData, loading, error, refresh } = useReports()
   const { toast } = useToast()
+
+  // Mode toggle: 'relatorio' (default) or 'comparativo'.
+  const [mode, setMode] = useState<ReportMode>('relatorio')
 
   const [startInput, setStartInput] = useState<string>(firstDayOfMonthYMD())
   const [endInput, setEndInput] = useState<string>(todayYMD())
@@ -1143,7 +2228,28 @@ export default function ReportsPage() {
   const [activeEnd, setActiveEnd] = useState<string>(todayYMD())
   const [hasGenerated, setHasGenerated] = useState(false)
 
+  // Comparison-mode state.
+  const [cmpStartA, setCmpStartA] = useState<string>(daysAgoYMD(6))
+  const [cmpEndA, setCmpEndA] = useState<string>(todayYMD())
+  const [cmpStartB, setCmpStartB] = useState<string>(
+    () => precedingRange(daysAgoYMD(6), todayYMD()).start,
+  )
+  const [cmpEndB, setCmpEndB] = useState<string>(
+    () => precedingRange(daysAgoYMD(6), todayYMD()).end,
+  )
+  const [cmpActive, setCmpActive] = useState<{
+    startA: string
+    endA: string
+    startB: string
+    endB: string
+  } | null>(null)
+  const [cmpLoading, setCmpLoading] = useState(false)
+  const [cmpError, setCmpError] = useState<string | null>(null)
+  const [cmpData, setCmpData] = useState<ComparisonData | null>(null)
+
   const invalidRange = startInput > endInput
+  const invalidCmpA = cmpStartA > cmpEndA
+  const invalidCmpB = cmpStartB > cmpEndB
 
   const currentPreset = useMemo<Preset | null>(() => {
     const presets: Preset[] = ['hoje', '7dias', 'mes', '30dias']
@@ -1203,6 +2309,98 @@ export default function ReportsPage() {
     toast({ title: 'Abrindo janela de impressão...' })
   }
 
+  /* ----- Comparison handlers ----- */
+
+  const runComparison = useCallback(
+    async (startA: string, endA: string, startB: string, endB: string) => {
+      setCmpActive({ startA, endA, startB, endB })
+      setCmpLoading(true)
+      setCmpError(null)
+      try {
+        const [allSales, allPurchases, allSaleItems, products] = await Promise.all([
+          listAllSales(),
+          listPurchases(),
+          listAllSaleItems(),
+          listProducts(),
+        ])
+        setCmpData(
+          buildComparisonData(
+            allSales,
+            allPurchases,
+            allSaleItems,
+            products,
+            startA,
+            endA,
+            startB,
+            endB,
+          ),
+        )
+      } catch (err) {
+        setCmpError(
+          err instanceof Error && err.message
+            ? err.message
+            : 'Não foi possível carregar os dados para o comparativo.',
+        )
+        setCmpData(null)
+      } finally {
+        setCmpLoading(false)
+      }
+    },
+    [],
+  )
+
+  const handleGenerateComparison = () => {
+    if (invalidCmpA || invalidCmpB) return
+    void runComparison(cmpStartA, cmpEndA, cmpStartB, cmpEndB)
+  }
+
+  const handleComparisonPreset = (preset: ComparisonPreset) => {
+    const r = comparisonPresetRanges(preset)
+    setCmpStartA(r.startA)
+    setCmpEndA(r.endA)
+    setCmpStartB(r.startB)
+    setCmpEndB(r.endB)
+    void runComparison(r.startA, r.endA, r.startB, r.endB)
+  }
+
+  // Auto-sync Periodo B to the immediately preceding period whenever Periodo A
+  // changes — but only while the user hasn't explicitly edited B. We track
+  // this with a "B is in sync" heuristic: if B currently equals the preceding
+  // range of the previous A, keep it in sync.
+  const prevARef = useRef<{ start: string; end: string } | null>(null)
+  useEffect(() => {
+    const prev = prevARef.current
+    if (!prev) {
+      prevARef.current = { start: cmpStartA, end: cmpEndA }
+      return
+    }
+    const aChanged = prev.start !== cmpStartA || prev.end !== cmpEndA
+    if (!aChanged) return
+    // Was B in sync with the PREVIOUS A?
+    const expectedPrevB = precedingRange(prev.start, prev.end)
+    const bWasInSync = cmpStartB === expectedPrevB.start && cmpEndB === expectedPrevB.end
+    prevARef.current = { start: cmpStartA, end: cmpEndA }
+    if (bWasInSync) {
+      const newB = precedingRange(cmpStartA, cmpEndA)
+      setCmpStartB(newB.start)
+      setCmpEndB(newB.end)
+    }
+  }, [cmpStartA, cmpEndA, cmpStartB, cmpEndB])
+
+  const handleExportComparisonPdf = () => {
+    if (!cmpData) return
+    const ok = exportComparisonPdf(cmpData)
+    if (!ok) {
+      toast({
+        variant: 'destructive',
+        title: 'Não foi possível abrir a janela de impressão.',
+        description: 'Permita popups para este site.',
+      })
+      return
+    }
+    toast({ title: 'Abrindo janela de impressão...' })
+  }
+
   const isEmpty =
     !loading &&
     !error &&
@@ -1220,132 +2418,451 @@ export default function ReportsPage() {
         : 'text-foreground'
     : 'text-foreground'
 
+  const cmpIsEmpty =
+    !cmpLoading &&
+    !cmpError &&
+    cmpData !== null &&
+    cmpData.receitaA === 0 &&
+    cmpData.despesaA === 0 &&
+    cmpData.receitaB === 0 &&
+    cmpData.despesaB === 0 &&
+    cmpData.products.length === 0
+
   return (
     <section>
       <PageHeader title="Relatórios" subtitle="Análise financeira e desempenho do seu negócio" />
 
-      {/* Period filter bar */}
+      {/* Mode toggle (segmented control / tablist) */}
       <div
-        className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
-        style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}
+        role="tablist"
+        aria-label="Modo de relatório"
+        className="inline-flex h-11 items-center rounded-[var(--radius)] border border-border bg-muted/40 p-1"
+        style={{ marginTop: '1.5rem' }}
       >
-        <div className="flex flex-col">
-          <label
-            htmlFor="report-start"
-            className="text-foreground"
-            style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: '0.375rem' }}
-          >
-            De
-          </label>
-          <input
-            id="report-start"
-            type="date"
-            required
-            value={startInput}
-            onChange={(e) => setStartInput(e.target.value)}
-            className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
-            style={{ fontSize: '0.875rem' }}
-          />
-        </div>
-        <div className="flex flex-col">
-          <label
-            htmlFor="report-end"
-            className="text-foreground"
-            style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: '0.375rem' }}
-          >
-            Até
-          </label>
-          <input
-            id="report-end"
-            type="date"
-            required
-            value={endInput}
-            onChange={(e) => setEndInput(e.target.value)}
-            className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
-            style={{ fontSize: '0.875rem' }}
-          />
-        </div>
-        <Button
-          className="h-11 gap-2 px-5 font-semibold transition-all duration-150 hover:brightness-[1.08] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed"
-          onClick={handleGenerate}
-          disabled={loading || invalidRange}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Gerando...
-            </>
-          ) : (
-            <>
-              <Filter className="h-4 w-4" />
-              Gerar Relatório
-            </>
+        <button
+          role="tab"
+          type="button"
+          aria-selected={mode === 'relatorio'}
+          id="tab-relatorio"
+          aria-controls="panel-relatorio"
+          onClick={() => setMode('relatorio')}
+          className={cn(
+            'inline-flex h-9 items-center gap-2 rounded-[calc(var(--radius)-4px)] px-4 text-[0.8125rem] font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            mode === 'relatorio'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
           )}
-        </Button>
+        >
+          <BarChart3 className="h-4 w-4" />
+          Relatório
+        </button>
+        <button
+          role="tab"
+          type="button"
+          aria-selected={mode === 'comparativo'}
+          id="tab-comparativo"
+          aria-controls="panel-comparativo"
+          onClick={() => setMode('comparativo')}
+          className={cn(
+            'inline-flex h-9 items-center gap-2 rounded-[calc(var(--radius)-4px)] px-4 text-[0.8125rem] font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            mode === 'comparativo'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <GitCompare className="h-4 w-4" />
+          Comparativo
+        </button>
       </div>
 
-      {/* Quick filters */}
-      <div className="flex flex-wrap gap-2" style={{ marginTop: '0.75rem' }}>
-        <QuickFilterButton
-          active={currentPreset === 'hoje'}
-          disabled={loading}
-          onClick={() => handlePreset('hoje')}
-        >
-          Hoje
-        </QuickFilterButton>
-        <QuickFilterButton
-          active={currentPreset === '7dias'}
-          disabled={loading}
-          onClick={() => handlePreset('7dias')}
-        >
-          7 Dias
-        </QuickFilterButton>
-        <QuickFilterButton
-          active={currentPreset === 'mes'}
-          disabled={loading}
-          onClick={() => handlePreset('mes')}
-        >
-          Este Mês
-        </QuickFilterButton>
-        <QuickFilterButton
-          active={currentPreset === '30dias'}
-          disabled={loading}
-          onClick={() => handlePreset('30dias')}
-        >
-          30 Dias
-        </QuickFilterButton>
-      </div>
+      {mode === 'relatorio' ? (
+        <div role="tabpanel" id="panel-relatorio" aria-labelledby="tab-relatorio">
+          {/* Period filter bar */}
+          <div
+            className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
+            style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}
+          >
+            <div className="flex flex-col">
+              <label
+                htmlFor="report-start"
+                className="text-foreground"
+                style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: '0.375rem' }}
+              >
+                De
+              </label>
+              <input
+                id="report-start"
+                type="date"
+                required
+                value={startInput}
+                onChange={(e) => setStartInput(e.target.value)}
+                className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                style={{ fontSize: '0.875rem' }}
+              />
+            </div>
+            <div className="flex flex-col">
+              <label
+                htmlFor="report-end"
+                className="text-foreground"
+                style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: '0.375rem' }}
+              >
+                Até
+              </label>
+              <input
+                id="report-end"
+                type="date"
+                required
+                value={endInput}
+                onChange={(e) => setEndInput(e.target.value)}
+                className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                style={{ fontSize: '0.875rem' }}
+              />
+            </div>
+            <Button
+              className="h-11 gap-2 px-5 font-semibold transition-all duration-150 hover:brightness-[1.08] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed"
+              onClick={handleGenerate}
+              disabled={loading || invalidRange}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Gerando...
+                </>
+              ) : (
+                <>
+                  <Filter className="h-4 w-4" />
+                  Gerar Relatório
+                </>
+              )}
+            </Button>
+          </div>
 
-      {invalidRange && (
-        <p
-          className="flex items-center gap-1.5 text-destructive"
-          style={{ marginTop: '0.5rem', fontSize: '0.8125rem' }}
-          role="alert"
-        >
-          <AlertCircle className="h-3.5 w-3.5" />
-          A data inicial não pode ser maior que a data final.
-        </p>
-      )}
+          {/* Quick filters */}
+          <div className="flex flex-wrap gap-2" style={{ marginTop: '0.75rem' }}>
+            <QuickFilterButton
+              active={currentPreset === 'hoje'}
+              disabled={loading}
+              onClick={() => handlePreset('hoje')}
+            >
+              Hoje
+            </QuickFilterButton>
+            <QuickFilterButton
+              active={currentPreset === '7dias'}
+              disabled={loading}
+              onClick={() => handlePreset('7dias')}
+            >
+              7 Dias
+            </QuickFilterButton>
+            <QuickFilterButton
+              active={currentPreset === 'mes'}
+              disabled={loading}
+              onClick={() => handlePreset('mes')}
+            >
+              Este Mês
+            </QuickFilterButton>
+            <QuickFilterButton
+              active={currentPreset === '30dias'}
+              disabled={loading}
+              onClick={() => handlePreset('30dias')}
+            >
+              30 Dias
+            </QuickFilterButton>
+          </div>
 
-      {/* Body */}
-      {error ? (
-        <ErrorState onRetry={() => runReport(activeStart, activeEnd)} />
-      ) : loading && !hasGenerated ? (
-        <ReportsLoading />
-      ) : isEmpty ? (
-        <EmptyPeriodState start={activeStart} end={activeEnd} />
+          {invalidRange && (
+            <p
+              className="flex items-center gap-1.5 text-destructive"
+              style={{ marginTop: '0.5rem', fontSize: '0.8125rem' }}
+              role="alert"
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              A data inicial não pode ser maior que a data final.
+            </p>
+          )}
+
+          {/* Body */}
+          {error ? (
+            <ErrorState onRetry={() => runReport(activeStart, activeEnd)} />
+          ) : loading && !hasGenerated ? (
+            <ReportsLoading />
+          ) : isEmpty ? (
+            <EmptyPeriodState start={activeStart} end={activeEnd} />
+          ) : (
+            <ReportsBody
+              data={reportData}
+              loading={loading}
+              start={activeStart}
+              end={activeEnd}
+              profitColor={profitColor}
+              onExport={handleExport}
+              onExportPdf={handleExportPdf}
+            />
+          )}
+        </div>
       ) : (
-        <ReportsBody
-          data={reportData}
-          loading={loading}
-          start={activeStart}
-          end={activeEnd}
-          profitColor={profitColor}
-          onExport={handleExport}
-          onExportPdf={handleExportPdf}
-        />
+        <div role="tabpanel" id="panel-comparativo" aria-labelledby="tab-comparativo">
+          {/* Comparison period selectors */}
+          <div
+            className="flex flex-col gap-4 lg:flex-row lg:items-end lg:gap-6"
+            style={{ marginTop: '1.5rem', marginBottom: '1rem' }}
+          >
+            {/* Periodo A */}
+            <div className="flex flex-col gap-2 lg:flex-1">
+              <span className="text-foreground" style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                Período A
+              </span>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex flex-col">
+                  <label
+                    htmlFor="cmp-start-a"
+                    className="text-muted-foreground"
+                    style={{ fontSize: '0.75rem', marginBottom: '0.25rem' }}
+                  >
+                    De
+                  </label>
+                  <input
+                    id="cmp-start-a"
+                    type="date"
+                    required
+                    value={cmpStartA}
+                    onChange={(e) => setCmpStartA(e.target.value)}
+                    className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                    style={{ fontSize: '0.875rem' }}
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label
+                    htmlFor="cmp-end-a"
+                    className="text-muted-foreground"
+                    style={{ fontSize: '0.75rem', marginBottom: '0.25rem' }}
+                  >
+                    Até
+                  </label>
+                  <input
+                    id="cmp-end-a"
+                    type="date"
+                    required
+                    value={cmpEndA}
+                    onChange={(e) => setCmpEndA(e.target.value)}
+                    className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                    style={{ fontSize: '0.875rem' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Periodo B */}
+            <div className="flex flex-col gap-2 lg:flex-1">
+              <span className="text-foreground" style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                Período B
+              </span>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex flex-col">
+                  <label
+                    htmlFor="cmp-start-b"
+                    className="text-muted-foreground"
+                    style={{ fontSize: '0.75rem', marginBottom: '0.25rem' }}
+                  >
+                    De
+                  </label>
+                  <input
+                    id="cmp-start-b"
+                    type="date"
+                    required
+                    value={cmpStartB}
+                    onChange={(e) => setCmpStartB(e.target.value)}
+                    className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                    style={{ fontSize: '0.875rem' }}
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label
+                    htmlFor="cmp-end-b"
+                    className="text-muted-foreground"
+                    style={{ fontSize: '0.75rem', marginBottom: '0.25rem' }}
+                  >
+                    Até
+                  </label>
+                  <input
+                    id="cmp-end-b"
+                    type="date"
+                    required
+                    value={cmpEndB}
+                    onChange={(e) => setCmpEndB(e.target.value)}
+                    className="h-11 rounded-[var(--radius)] border border-input bg-background px-3 text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                    style={{ fontSize: '0.875rem' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Button
+              className="h-11 gap-2 px-5 font-semibold transition-all duration-150 hover:brightness-[1.08] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed"
+              onClick={handleGenerateComparison}
+              disabled={cmpLoading || invalidCmpA || invalidCmpB}
+            >
+              {cmpLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Comparando...
+                </>
+              ) : (
+                <>
+                  <Filter className="h-4 w-4" />
+                  Gerar Comparativo
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* Comparison quick filters */}
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: '1rem' }}>
+            <QuickFilterButton
+              active={false}
+              disabled={cmpLoading}
+              onClick={() => handleComparisonPreset('semana')}
+            >
+              Semana atual vs anterior
+            </QuickFilterButton>
+            <QuickFilterButton
+              active={false}
+              disabled={cmpLoading}
+              onClick={() => handleComparisonPreset('mes')}
+            >
+              Mês atual vs anterior
+            </QuickFilterButton>
+            <QuickFilterButton
+              active={false}
+              disabled={cmpLoading}
+              onClick={() => handleComparisonPreset('30dias')}
+            >
+              Últimos 30 dias vs anteriores 30 dias
+            </QuickFilterButton>
+          </div>
+
+          {(invalidCmpA || invalidCmpB) && (
+            <p
+              className="flex items-center gap-1.5 text-destructive"
+              style={{ marginTop: '0.5rem', marginBottom: '0.5rem', fontSize: '0.8125rem' }}
+              role="alert"
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              A data inicial não pode ser maior que a data final.
+            </p>
+          )}
+
+          {/* Comparison body */}
+          {cmpError ? (
+            <ErrorState
+              onRetry={() =>
+                cmpActive &&
+                runComparison(cmpActive.startA, cmpActive.endA, cmpActive.startB, cmpActive.endB)
+              }
+            />
+          ) : cmpLoading && !cmpData ? (
+            <ComparisonLoading />
+          ) : cmpIsEmpty ? (
+            <ComparisonEmptyState />
+          ) : cmpData ? (
+            <ComparisonBody
+              data={cmpData}
+              loading={cmpLoading}
+              onExportPdf={handleExportComparisonPdf}
+            />
+          ) : (
+            <ComparisonEmptyState />
+          )}
+        </div>
       )}
     </section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Comparison body composite                                           */
+/* ------------------------------------------------------------------ */
+
+interface ComparisonBodyProps {
+  data: ComparisonData
+  loading: boolean
+  onExportPdf: () => void
+}
+
+function ComparisonBody({ data, loading, onExportPdf }: ComparisonBodyProps) {
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Comparison summary cards */}
+      {loading ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <ComparisonCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <ComparisonCard
+            label={METRIC_LABELS.receita}
+            valueA={data.receitaA}
+            valueB={data.receitaB}
+          />
+          <ComparisonCard
+            label={METRIC_LABELS.despesa}
+            valueA={data.despesaA}
+            valueB={data.despesaB}
+          />
+          <ComparisonCard
+            label={METRIC_LABELS.comissao}
+            valueA={data.comissaoA}
+            valueB={data.comissaoB}
+          />
+          <ComparisonCard label={METRIC_LABELS.lucro} valueA={data.lucroA} valueB={data.lucroB} />
+          <ComparisonCard
+            label={METRIC_LABELS.ticket}
+            valueA={data.ticketA}
+            valueB={data.ticketB}
+          />
+        </div>
+      )}
+
+      {/* Comparison chart */}
+      <div style={{ marginTop: '2rem' }}>
+        <ChartCard title="Comparativo de Receitas, Despesas e Comissão">
+          {loading ? <ChartSkeleton /> : <ComparisonChart data={data} />}
+        </ChartCard>
+      </div>
+
+      {/* Comparison top products */}
+      <div style={{ marginTop: '2rem' }}>
+        <div className="flex items-center justify-between gap-2" style={{ marginBottom: '1rem' }}>
+          <h2 className="text-foreground" style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+            Produtos Mais Vendidos — Comparativo
+          </h2>
+          <Button
+            variant="outline"
+            className="h-10 gap-2 px-4 text-[0.8125rem] font-medium hover:bg-muted/30 hover:border-ring/40 focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
+            onClick={onExportPdf}
+            disabled={loading}
+            aria-label="Exportar relatório comparativo em PDF"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            Exportar PDF
+          </Button>
+        </div>
+        <div>
+          {loading ? (
+            <ComparisonProductsSkeleton />
+          ) : data.products.length > 0 ? (
+            <ComparisonProductsTable rows={data.products} />
+          ) : (
+            <ProductsEmptyState />
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
