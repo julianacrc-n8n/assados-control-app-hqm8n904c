@@ -8,6 +8,7 @@ import {
   Loader2,
   Receipt,
   RefreshCw,
+  Store,
   TrendingDown,
   TrendingUp,
   Wallet,
@@ -149,20 +150,33 @@ function generatedAt(): string {
 }
 
 /** Build the text-based bar chart HTML for the revenue vs expenses series. */
-function buildBarChartHtml(dailyRevenue: DailyPoint[], dailyExpenses: DailyPoint[]): string {
-  const hasData = dailyRevenue.some((p) => p.value > 0) || dailyExpenses.some((p) => p.value > 0)
+function buildBarChartHtml(
+  dailyRevenue: DailyPoint[],
+  dailyExpenses: DailyPoint[],
+  dailyIfoodCommission: DailyPoint[],
+): string {
+  const hasData =
+    dailyRevenue.some((p) => p.value > 0) ||
+    dailyExpenses.some((p) => p.value > 0) ||
+    dailyIfoodCommission.some((p) => p.value > 0)
 
   if (!hasData) {
     return '<div style="text-align:center;padding:12px;color:#777777;font-size:11px;">Sem dados de receitas e despesas no período.</div>'
   }
 
-  const max = Math.max(0, ...dailyRevenue.map((p) => p.value), ...dailyExpenses.map((p) => p.value))
+  const max = Math.max(
+    0,
+    ...dailyRevenue.map((p) => p.value),
+    ...dailyExpenses.map((p) => p.value),
+    ...dailyIfoodCommission.map((p) => p.value),
+  )
   const maxSafe = max > 0 ? max : 1
 
   let points = dailyRevenue.map((rev, i) => ({
     label: rev.date,
     revenue: rev.value,
     expenses: dailyExpenses[i]?.value ?? 0,
+    commission: dailyIfoodCommission[i]?.value ?? 0,
   }))
 
   // If more than 15 data points, sample every Nth so the chart fits one page.
@@ -175,17 +189,22 @@ function buildBarChartHtml(dailyRevenue: DailyPoint[], dailyExpenses: DailyPoint
     .map((p) => {
       const revW = Math.max((p.revenue / maxSafe) * 300, p.revenue > 0 ? 1 : 0)
       const expW = Math.max((p.expenses / maxSafe) * 300, p.expenses > 0 ? 1 : 0)
+      const comW = Math.max((p.commission / maxSafe) * 300, p.commission > 0 ? 1 : 0)
       return `
       <div style="display:flex;align-items:center;margin-bottom:6px;">
         <div style="width:50px;font-size:9px;color:#555555;flex-shrink:0;">${escapeHtml(p.label)}</div>
         <div style="flex:1;">
           <div style="display:flex;align-items:center;margin-bottom:2px;">
-            <div style="height:10px;background-color:#006600;width:${revW}px;border-radius:2px;"></div>
+            <div style="height:9px;background-color:#006600;width:${revW}px;border-radius:2px;"></div>
             ${p.revenue > 0 ? `<span style="font-size:9px;color:#333333;margin-left:4px;">${brl(p.revenue)}</span>` : ''}
           </div>
-          <div style="display:flex;align-items:center;">
-            <div style="height:10px;background-color:#990000;width:${expW}px;border-radius:2px;"></div>
+          <div style="display:flex;align-items:center;margin-bottom:2px;">
+            <div style="height:9px;background-color:#990000;width:${expW}px;border-radius:2px;"></div>
             ${p.expenses > 0 ? `<span style="font-size:9px;color:#333333;margin-left:4px;">${brl(p.expenses)}</span>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;">
+            <div style="height:9px;background-color:#cc7a00;width:${comW}px;border-radius:2px;"></div>
+            ${p.commission > 0 ? `<span style="font-size:9px;color:#333333;margin-left:4px;">${brl(p.commission)}</span>` : ''}
           </div>
         </div>
       </div>`
@@ -198,6 +217,7 @@ function buildBarChartHtml(dailyRevenue: DailyPoint[], dailyExpenses: DailyPoint
       <div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:#555555;">
         <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#006600;"></span>Receitas</span>
         <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#990000;"></span>Despesas</span>
+        <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background-color:#cc7a00;"></span>Comissão iFood</span>
       </div>
     </div>`
 }
@@ -227,7 +247,11 @@ function buildReportHtml(data: ReportData, start: string, end: string): string {
         </td>
       </tr>`
 
-  const chartHtml = buildBarChartHtml(data.dailyRevenue, data.dailyExpenses)
+  const chartHtml = buildBarChartHtml(
+    data.dailyRevenue,
+    data.dailyExpenses,
+    data.dailyIfoodCommission,
+  )
 
   const productsHtml =
     data.topProducts.length === 0
@@ -287,20 +311,22 @@ function buildReportHtml(data: ReportData, start: string, end: string): string {
         <tr>
           <th>Receita Total</th>
           <th>Despesa Total</th>
+          <th>Comissão iFood</th>
           <th>Lucro</th>
           <th>Ticket Médio</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:#006600;">${brl(data.totalRevenue)}</td>
-          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:#990000;">${brl(data.totalExpenses)}</td>
-          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:${profitColor};">${brl(data.totalProfit)}</td>
-          <td style="padding:8px 10px;text-align:center;font-size:14px;font-weight:700;color:#333333;">${brl(data.averageTicket)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:#006600;">${brl(data.totalRevenue)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:#990000;">${brl(data.totalExpenses)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:#cc7a00;">${brl(data.totalIfoodCommission)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:${profitColor};">${brl(data.totalProfit)}</td>
+          <td style="padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:#333333;">${brl(data.averageTicket)}</td>
         </tr>
       </tbody>
     </table>
-    <div style="font-size:10px;color:#777777;margin-top:4px;">Total de vendas: ${data.salesCount} | Total de compras: ${data.purchasesCount}</div>
+    <div style="font-size:10px;color:#777777;margin-top:4px;">Total de vendas: ${data.salesCount} | Total de compras: ${data.purchasesCount} | Vendas no iFood: ${data.ifoodSalesCount}</div>
   </div>
 
   <div class="avoid-break">
@@ -378,6 +404,7 @@ interface SummaryCardProps {
   iconContainerClass: string
   iconClass: string
   subtitle: React.ReactNode
+  ariaLabel?: string
 }
 
 function SummaryCard({
@@ -388,9 +415,11 @@ function SummaryCard({
   iconContainerClass,
   iconClass,
   subtitle,
+  ariaLabel,
 }: SummaryCardProps) {
   return (
     <article
+      aria-label={ariaLabel ?? label}
       className="relative flex flex-col gap-2 overflow-hidden rounded-[var(--radius)] border border-border bg-card transition-all duration-200 hover:border-ring/40 hover:shadow-[0_4px_6px_-1px_rgb(0_0_0/0.05),0_2px_4px_-2px_rgb(0_0_0/0.05)]"
       style={{ padding: '1.5rem' }}
     >
@@ -459,14 +488,23 @@ function SummaryCardSkeleton() {
 interface BarChartProps {
   revenue: DailyPoint[]
   expenses: DailyPoint[]
+  ifoodCommission: DailyPoint[]
 }
 
-function RevenueExpenseChart({ revenue, expenses }: BarChartProps) {
-  const hasData = revenue.some((p) => p.value > 0) || expenses.some((p) => p.value > 0)
+function RevenueExpenseChart({ revenue, expenses, ifoodCommission }: BarChartProps) {
+  const hasData =
+    revenue.some((p) => p.value > 0) ||
+    expenses.some((p) => p.value > 0) ||
+    ifoodCommission.some((p) => p.value > 0)
   const max = useMemo(() => {
-    const m = Math.max(0, ...revenue.map((p) => p.value), ...expenses.map((p) => p.value))
+    const m = Math.max(
+      0,
+      ...revenue.map((p) => p.value),
+      ...expenses.map((p) => p.value),
+      ...ifoodCommission.map((p) => p.value),
+    )
     return m > 0 ? m : 1
-  }, [revenue, expenses])
+  }, [revenue, expenses, ifoodCommission])
 
   if (!hasData) {
     return (
@@ -486,12 +524,14 @@ function RevenueExpenseChart({ revenue, expenses }: BarChartProps) {
         className="flex items-end justify-around gap-2"
         style={{ height: 280, overflowX: 'auto', padding: '1rem 0' }}
         role="img"
-        aria-label="Gráfico de receitas versus despesas por período"
+        aria-label="Gráfico de receitas, despesas e comissão iFood por período"
       >
         {revenue.map((point, i) => {
           const exp = expenses[i]?.value ?? 0
+          const com = ifoodCommission[i]?.value ?? 0
           const revH = Math.max((point.value / max) * 100, point.value > 0 ? 4 / 2.8 : 0)
           const expH = Math.max((exp / max) * 100, exp > 0 ? 4 / 2.8 : 0)
+          const comH = Math.max((com / max) * 100, com > 0 ? 4 / 2.8 : 0)
           return (
             <div
               key={i}
@@ -509,7 +549,7 @@ function RevenueExpenseChart({ revenue, expenses }: BarChartProps) {
                     </span>
                   )}
                   <div
-                    className="w-2 rounded-t sm:w-3"
+                    className="w-[6px] rounded-t sm:w-[10px]"
                     style={{
                       height: `${revH}%`,
                       backgroundColor: 'hsl(142 70% 45%)',
@@ -528,13 +568,32 @@ function RevenueExpenseChart({ revenue, expenses }: BarChartProps) {
                     </span>
                   )}
                   <div
-                    className="w-2 rounded-t sm:w-3"
+                    className="w-[6px] rounded-t sm:w-[10px]"
                     style={{
                       height: `${expH}%`,
                       backgroundColor: 'var(--destructive)',
                       minHeight: exp > 0 ? 4 : 0,
                     }}
                     title={`Despesas: ${formatBRL(exp)}`}
+                  />
+                </div>
+                <div className="flex h-full flex-col items-center justify-end">
+                  {com > 0 && (
+                    <span
+                      className="text-muted-foreground tabular-nums"
+                      style={{ fontSize: '0.625rem', lineHeight: 1 }}
+                    >
+                      {formatBRL(com)}
+                    </span>
+                  )}
+                  <div
+                    className="w-[6px] rounded-t sm:w-[10px]"
+                    style={{
+                      height: `${comH}%`,
+                      backgroundColor: 'hsl(30 80% 50%)',
+                      minHeight: com > 0 ? 4 : 0,
+                    }}
+                    title={`Comissão iFood: ${formatBRL(com)}`}
                   />
                 </div>
               </div>
@@ -548,7 +607,7 @@ function RevenueExpenseChart({ revenue, expenses }: BarChartProps) {
           )
         })}
       </div>
-      <div className="flex items-center gap-4" style={{ marginTop: '0.75rem' }}>
+      <div className="flex flex-wrap items-center gap-4" style={{ marginTop: '0.75rem' }}>
         <span
           className="flex items-center gap-2 text-muted-foreground"
           style={{ fontSize: '0.75rem' }}
@@ -566,15 +625,23 @@ function RevenueExpenseChart({ revenue, expenses }: BarChartProps) {
           />
           Despesas
         </span>
+        <span
+          className="flex items-center gap-2 text-muted-foreground"
+          style={{ fontSize: '0.75rem' }}
+        >
+          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: 'hsl(30 80% 50%)' }} />
+          Comissão iFood
+        </span>
       </div>
       {/* Visually hidden summary table for screen readers */}
       <table className="sr-only">
-        <caption>Receitas e despesas por período</caption>
+        <caption>Receitas, despesas e comissão iFood por período</caption>
         <thead>
           <tr>
             <th>Período</th>
             <th>Receitas</th>
             <th>Despesas</th>
+            <th>Comissão iFood</th>
           </tr>
         </thead>
         <tbody>
@@ -583,6 +650,7 @@ function RevenueExpenseChart({ revenue, expenses }: BarChartProps) {
               <td>{p.date}</td>
               <td>{formatBRL(p.value)}</td>
               <td>{formatBRL(expenses[i]?.value ?? 0)}</td>
+              <td>{formatBRL(ifoodCommission[i]?.value ?? 0)}</td>
             </tr>
           ))}
         </tbody>
@@ -606,12 +674,16 @@ function ChartSkeleton() {
         >
           <div className="flex w-full flex-1 items-end justify-center gap-0.5">
             <div
-              className="w-2 animate-pulse rounded-t bg-muted sm:w-3"
+              className="w-[6px] animate-pulse rounded-t bg-muted sm:w-[10px]"
               style={{ height: `${h}%`, minHeight: 4 }}
             />
             <div
-              className="w-2 animate-pulse rounded-t bg-muted sm:w-3"
+              className="w-[6px] animate-pulse rounded-t bg-muted sm:w-[10px]"
               style={{ height: `${h * 0.6}%`, minHeight: 4 }}
+            />
+            <div
+              className="w-[6px] animate-pulse rounded-t bg-muted sm:w-[10px]"
+              style={{ height: `${h * 0.4}%`, minHeight: 4 }}
             />
           </div>
           <div className="mt-2 h-2 w-10 animate-pulse rounded bg-muted" />
@@ -1284,8 +1356,8 @@ export default function ReportsPage() {
 function ReportsLoading() {
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((i) => (
           <SummaryCardSkeleton key={i} />
         ))}
       </div>
@@ -1338,13 +1410,13 @@ function ReportsBody({ data, loading, profitColor, onExport, onExportPdf }: Repo
     <div className="flex flex-col gap-6">
       {/* Summary cards */}
       {loading ? (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+          {[0, 1, 2, 3, 4].map((i) => (
             <SummaryCardSkeleton key={i} />
           ))}
         </div>
       ) : data ? (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
           <SummaryCard
             icon={TrendingUp}
             label="Receita Total"
@@ -1378,10 +1450,13 @@ function ReportsBody({ data, loading, profitColor, onExport, onExportPdf }: Repo
             valueClassName={profitColor}
             iconContainerClass={profitIconContainer}
             iconClass={profitIconClass}
+            ariaLabel={`Lucro após comissão iFood de ${formatBRL(data.totalIfoodCommission)}`}
             subtitle={
               <span className="text-muted-foreground">
-                Ticket médio:{' '}
-                <span className="font-medium text-foreground">{formatBRL(data.averageTicket)}</span>
+                Após comissão iFood:{' '}
+                <span className="font-medium text-foreground">
+                  {formatBRL(data.totalIfoodCommission)}
+                </span>
               </span>
             }
           />
@@ -1393,6 +1468,25 @@ function ReportsBody({ data, loading, profitColor, onExport, onExportPdf }: Repo
             iconClass="text-[hsl(215,25%,50%)]"
             subtitle={<span className="text-muted-foreground">Por venda no período</span>}
           />
+          <SummaryCard
+            icon={Store}
+            label="Comissão iFood"
+            value={formatBRL(data.totalIfoodCommission)}
+            valueClassName="text-muted-foreground"
+            iconContainerClass="bg-[hsl(30,80%,50%,0.15)]"
+            iconClass="text-[hsl(30,80%,50%)]"
+            ariaLabel={`Comissão iFood: ${formatBRL(data.totalIfoodCommission)}, ${data.ifoodSalesCount} venda(s) no iFood`}
+            subtitle={
+              data.totalIfoodCommission > 0 ? (
+                <>
+                  <span className="font-semibold text-foreground">{data.ifoodSalesCount}</span>{' '}
+                  <span className="text-muted-foreground">venda(s) no iFood</span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">Sem vendas no iFood</span>
+              )
+            }
+          />
         </div>
       ) : null}
 
@@ -1402,7 +1496,11 @@ function ReportsBody({ data, loading, profitColor, onExport, onExportPdf }: Repo
           {loading ? (
             <ChartSkeleton />
           ) : data ? (
-            <RevenueExpenseChart revenue={data.dailyRevenue} expenses={data.dailyExpenses} />
+            <RevenueExpenseChart
+              revenue={data.dailyRevenue}
+              expenses={data.dailyExpenses}
+              ifoodCommission={data.dailyIfoodCommission}
+            />
           ) : null}
         </ChartCard>
         <ChartCard title="Formas de Pagamento">

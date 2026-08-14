@@ -174,6 +174,12 @@ export interface PaymentBreakdown {
   pix: number
 }
 
+/** Revenue split by sales channel (iFood vs PDV) for a reporting period. */
+export interface ChannelBreakdown {
+  ifood: number
+  pdv: number
+}
+
 /** Aggregated metrics computed by the useReports hook for a date range. */
 export interface ReportData {
   totalRevenue: number
@@ -184,8 +190,14 @@ export interface ReportData {
   averageTicket: number
   dailyRevenue: DailyPoint[]
   dailyExpenses: DailyPoint[]
+  dailyIfoodCommission: DailyPoint[]
   topProducts: TopProduct[]
   paymentBreakdown: PaymentBreakdown
+  totalIfoodCommission: number
+  ifoodSalesCount: number
+  ifoodRevenue: number
+  pdvRevenue: number
+  channelBreakdown: ChannelBreakdown
 }
 
 /** Aggregated metrics shown on the Dashboard page. */
@@ -200,6 +212,9 @@ export interface DashboardMetrics {
   lowStockIngredients: Ingredient[]
   totalProducts: number
   activeProducts: number
+  totalIfoodCommission: number
+  ifoodSalesCount: number
+  ifoodRevenue: number
 }
 
 /**

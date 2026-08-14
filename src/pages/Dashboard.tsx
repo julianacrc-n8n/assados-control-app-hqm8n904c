@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import {
   AlertCircle,
   AlertTriangle,
-  Package,
   RefreshCw,
   ShoppingBag,
   ShoppingCart,
@@ -51,6 +50,20 @@ function paymentBadgeClass(label: string): string {
   return 'bg-[hsl(142,70%,45%,0.15)] text-[hsl(142,70%,35%)] dark:text-[hsl(142,70%,60%)]'
 }
 
+/** Channel badge shown next to the payment method in recent sales. */
+function channelBadge(channel: string) {
+  if (channel === 'iFood') {
+    return {
+      label: 'iFood',
+      className: 'bg-[hsl(30,80%,50%,0.15)] text-[hsl(30,80%,40%)] dark:text-[hsl(30,80%,65%)]',
+    }
+  }
+  return {
+    label: 'PDV',
+    className: 'bg-[hsl(215,70%,50%,0.12)] text-[hsl(215,70%,40%)] dark:text-[hsl(215,70%,65%)]',
+  }
+}
+
 function formatDateBR(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -96,6 +109,7 @@ interface MetricCardProps {
   iconContainerClass: string
   iconClass: string
   subtitle: React.ReactNode
+  ariaLabel?: string
 }
 
 function MetricCard({
@@ -106,9 +120,13 @@ function MetricCard({
   iconContainerClass,
   iconClass,
   subtitle,
+  ariaLabel,
 }: MetricCardProps) {
   return (
-    <article className="metric-card group relative flex flex-col gap-2 overflow-hidden rounded-[var(--radius)] border border-border bg-card p-6">
+    <article
+      aria-label={ariaLabel ?? label}
+      className="metric-card group relative flex flex-col gap-2 overflow-hidden rounded-[var(--radius)] border border-border bg-card p-6"
+    >
       <div
         className={`mb-1 flex h-10 w-10 items-center justify-center rounded-lg ${iconContainerClass}`}
       >
@@ -166,6 +184,7 @@ function RecentSales({ sales }: { sales: Sale[] }) {
         <div className="p-2">
           {recent.map((s, idx) => {
             const label = paymentLabel(s.paymentMethod)
+            const channel = channelBadge(s.salesChannel)
             return (
               <div
                 key={s.id}
@@ -188,12 +207,20 @@ function RecentSales({ sales }: { sales: Sale[] }) {
                   >
                     {formatBRL(s.total)}
                   </span>
-                  <span
-                    className={`inline-flex items-center rounded-full ${paymentBadgeClass(label)}`}
-                    style={{ padding: '0.125rem 0.5rem', fontSize: '0.6875rem', fontWeight: 500 }}
-                  >
-                    {label}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span
+                      className={`inline-flex items-center rounded-full ${paymentBadgeClass(label)}`}
+                      style={{ padding: '0.125rem 0.5rem', fontSize: '0.6875rem', fontWeight: 500 }}
+                    >
+                      {label}
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full ${channel.className}`}
+                      style={{ padding: '0.125rem 0.5rem', fontSize: '0.6875rem', fontWeight: 500 }}
+                    >
+                      {channel.label}
+                    </span>
+                  </div>
                 </div>
               </div>
             )
@@ -337,8 +364,8 @@ function MetricCardSkeleton() {
 function LoadingState() {
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((i) => (
           <MetricCardSkeleton key={i} />
         ))}
       </div>
@@ -482,12 +509,12 @@ export default function DashboardPage() {
               <WelcomeState />
             ) : (
               <div
-                className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4"
+                className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5"
                 style={{ marginTop: '1.5rem' }}
               >
                 <MetricCard
                   icon={TrendingUp}
-                  label="Lucro Total"
+                  label="Lucro Liquido"
                   value={formatBRL(metrics.totalProfit)}
                   valueClassName={profitColor}
                   iconContainerClass="bg-[hsl(142,70%,45%,0.15)]"
@@ -497,7 +524,11 @@ export default function DashboardPage() {
                       <span className="text-muted-foreground">Receitas:</span>{' '}
                       <span className="text-foreground">{formatBRL(metrics.totalRevenue)}</span> |{' '}
                       <span className="text-muted-foreground">Despesas:</span>{' '}
-                      <span className="text-foreground">{formatBRL(metrics.totalExpenses)}</span>
+                      <span className="text-foreground">{formatBRL(metrics.totalExpenses)}</span> |{' '}
+                      <span className="text-muted-foreground">Comissão iFood:</span>{' '}
+                      <span className="text-foreground">
+                        {formatBRL(metrics.totalIfoodCommission)}
+                      </span>
                     </>
                   }
                 />
@@ -534,16 +565,25 @@ export default function DashboardPage() {
                   }
                 />
                 <MetricCard
-                  icon={Package}
-                  label="Produtos Ativos"
-                  value={metrics.activeProducts}
-                  iconContainerClass="bg-[hsl(215,25%,50%,0.15)]"
-                  iconClass="text-[hsl(215,25%,50%)]"
+                  icon={Store}
+                  label="Comissão iFood"
+                  value={formatBRL(metrics.totalIfoodCommission)}
+                  valueClassName={
+                    metrics.totalIfoodCommission > 0 ? 'text-destructive' : 'text-muted-foreground'
+                  }
+                  iconContainerClass="bg-[hsl(30,80%,50%,0.15)]"
+                  iconClass="text-[hsl(30,80%,50%)]"
                   subtitle={
-                    <>
-                      <span className="font-semibold text-foreground">{metrics.totalProducts}</span>{' '}
-                      <span className="text-muted-foreground">total cadastrado(s)</span>
-                    </>
+                    metrics.totalIfoodCommission > 0 ? (
+                      <>
+                        <span className="font-semibold text-foreground">
+                          {metrics.ifoodSalesCount}
+                        </span>{' '}
+                        <span className="text-muted-foreground">venda(s) no iFood</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Sem vendas no iFood</span>
+                    )
                   }
                 />
               </div>

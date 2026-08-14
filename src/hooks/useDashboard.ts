@@ -29,6 +29,9 @@ const EMPTY_METRICS: DashboardMetrics = {
   lowStockIngredients: [],
   totalProducts: 0,
   activeProducts: 0,
+  totalIfoodCommission: 0,
+  ifoodSalesCount: 0,
+  ifoodRevenue: 0,
 }
 
 function toPTBR(error: unknown): string {
@@ -59,6 +62,15 @@ function computeMetrics(
   const totalRevenue = sales.reduce((sum, s) => sum + (s.total || 0), 0)
   const totalExpenses = purchases.reduce((sum, p) => sum + (p.total || 0), 0)
 
+  // iFood commission and channel metrics.
+  const totalIfoodCommission = sales.reduce(
+    (sum, s) => sum + (s.ifoodCommission != null && s.ifoodCommission > 0 ? s.ifoodCommission : 0),
+    0,
+  )
+  const ifoodSales = sales.filter((s) => s.salesChannel === 'iFood')
+  const ifoodSalesCount = ifoodSales.length
+  const ifoodRevenue = ifoodSales.reduce((sum, s) => sum + (s.total || 0), 0)
+
   const today = todayKey()
   const todaySalesRows = sales.filter((s) => {
     if (!s.date) return false
@@ -83,7 +95,7 @@ function computeMetrics(
   return {
     totalRevenue,
     totalExpenses,
-    totalProfit: totalRevenue - totalExpenses,
+    totalProfit: totalRevenue - totalExpenses - totalIfoodCommission,
     todaySales,
     todaySalesCount,
     monthExpenses,
@@ -91,6 +103,9 @@ function computeMetrics(
     lowStockIngredients,
     totalProducts,
     activeProducts,
+    totalIfoodCommission,
+    ifoodSalesCount,
+    ifoodRevenue,
   }
 }
 

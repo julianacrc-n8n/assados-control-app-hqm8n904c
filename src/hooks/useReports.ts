@@ -27,8 +27,14 @@ const EMPTY_REPORT: ReportData = {
   averageTicket: 0,
   dailyRevenue: [],
   dailyExpenses: [],
+  dailyIfoodCommission: [],
   topProducts: [],
   paymentBreakdown: { dinheiro: 0, cartao: 0, pix: 0 },
+  totalIfoodCommission: 0,
+  ifoodSalesCount: 0,
+  ifoodRevenue: 0,
+  pdvRevenue: 0,
+  channelBreakdown: { ifood: 0, pdv: 0 },
 }
 
 function toPTBR(error: unknown): string {
@@ -170,8 +176,25 @@ function computeReport(
   const purchasesCount = purchases.length
   const averageTicket = salesCount > 0 ? totalRevenue / salesCount : 0
 
+  // iFood commission and channel metrics for the period.
+  const totalIfoodCommission = sales.reduce(
+    (sum, s) => sum + (s.ifoodCommission != null && s.ifoodCommission > 0 ? s.ifoodCommission : 0),
+    0,
+  )
+  const ifoodSales = sales.filter((s) => s.salesChannel === 'iFood')
+  const ifoodSalesCount = ifoodSales.length
+  const ifoodRevenue = ifoodSales.reduce((sum, s) => sum + (s.total || 0), 0)
+  const pdvRevenue = sales
+    .filter((s) => s.salesChannel === 'PDV' || s.salesChannel == null)
+    .reduce((sum, s) => sum + (s.total || 0), 0)
+
   const dailyRevenue = buildSeries(sales, start, end)
   const dailyExpenses = buildSeries(purchases, start, end)
+  // Daily iFood commission series (uses ifoodCommission as the "total" value).
+  const ifoodCommissionRecords = sales
+    .filter((s) => s.ifoodCommission != null && s.ifoodCommission > 0)
+    .map((s) => ({ date: s.date, total: s.ifoodCommission }))
+  const dailyIfoodCommission = buildSeries(ifoodCommissionRecords, start, end)
 
   // Top products — group sale_items by productId, sum quantity and revenue.
   const productMap = new Map<string, Product>()
@@ -214,14 +237,20 @@ function computeReport(
   return {
     totalRevenue,
     totalExpenses,
-    totalProfit: totalRevenue - totalExpenses,
+    totalProfit: totalRevenue - totalExpenses - totalIfoodCommission,
     salesCount,
     purchasesCount,
     averageTicket,
     dailyRevenue,
     dailyExpenses,
+    dailyIfoodCommission,
     topProducts,
     paymentBreakdown,
+    totalIfoodCommission,
+    ifoodSalesCount,
+    ifoodRevenue,
+    pdvRevenue,
+    channelBreakdown: { ifood: ifoodRevenue, pdv: pdvRevenue },
   }
 }
 
