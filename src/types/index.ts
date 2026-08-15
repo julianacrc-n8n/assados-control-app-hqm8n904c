@@ -298,7 +298,16 @@ export interface StoreSettings {
   id: string
   /** Store display name (ex: "Assados Control"). Required. */
   storeName: string
-  /** URL or data URL for the store logo. null = show initial-letter avatar. */
+  /**
+   * Stored filename of the uploaded store logo (e.g. "logo_abc123.png").
+   * null = no logo uploaded. This is the raw value from the file field.
+   */
+  storeLogo: string | null
+  /**
+   * Computed full URL of the store logo (built by the hook via
+   * `pb.files.getUrl`, includes the auth token when needed). null = no logo.
+   * This is a convenience field — NOT a real DB column.
+   */
   storeLogoUrl: string | null
   /** Phone (ex: "(11) 99999-9999"). */
   storePhone: string | null

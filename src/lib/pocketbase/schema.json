@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T22:25:53.117Z",
+  "generatedAt": "2026-08-14T23:49:24.822Z",
   "collections": [
     {
       "name": "users",
@@ -526,12 +526,6 @@
           "system": false
         },
         {
-          "name": "storeLogoUrl",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
           "name": "storePhone",
           "type": "text",
           "required": false,
@@ -604,6 +598,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "storeLogo",
+          "type": "file",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []

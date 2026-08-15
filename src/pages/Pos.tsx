@@ -31,7 +31,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { IfoodImportDialog } from '@/components/pos/IfoodImportDialog'
 import { usePOS } from '@/hooks/usePOS'
 import { useProductLookup } from '@/hooks/useProductLookup'
-import { useStoreSettings } from '@/hooks/useStoreSettings'
+import { useStoreSettings, fetchFileAsDataUrl } from '@/hooks/useStoreSettings'
 import { listActiveProducts, searchActiveProducts } from '@/services/sales'
 import { formatBRL } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -100,6 +100,22 @@ export default function PosPage() {
   // synchronously when the receipt print popup opens. Recomputed whenever
   // the dev branding settings change.
   const [devQrDataUrl, setDevQrDataUrl] = useState<string | null>(null)
+  const [storeLogoDataUrl, setStoreLogoDataUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const url = settings.storeLogoUrl
+    if (!url) {
+      setStoreLogoDataUrl(null)
+      return
+    }
+    void (async () => {
+      const dataUrl = await fetchFileAsDataUrl(url)
+      if (!cancelled) setStoreLogoDataUrl(dataUrl)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [settings.storeLogoUrl])
   useEffect(() => {
     let cancelled = false
     const showDev =
@@ -800,11 +816,13 @@ function ReceiptContent({
   sale,
   settings,
   devQrDataUrl,
+  storeLogoDataUrl,
   onClose,
 }: {
   sale: SaleResult | null
   settings: StoreSettings
   devQrDataUrl: string | null
+  storeLogoDataUrl: string | null
   onClose: () => void
 }) {
   if (!sale) return null
@@ -830,7 +848,7 @@ function ReceiptContent({
       {/* Copy 2 — VIA BALCÃO */}
       <div>
         <ViaLabel text="VIA BALCÃO" />
-        <ReceiptBody sale={sale} settings={settings} />
+        <ReceiptBody sale={sale} settings={settings} storeLogoDataUrl={storeLogoDataUrl} />
         {sale.orderNotes && <ObservacoesSection notes={sale.orderNotes} />}
         <DevBrandingBlock settings={settings} devQrDataUrl={devQrDataUrl} />
       </div>
@@ -952,7 +970,15 @@ function ObservacoesSection({ notes }: { notes: string }) {
 }
 
 /** The full receipt content (store name, date, items, totals, payment, change, thank you, pickup code). */
-function ReceiptBody({ sale, settings }: { sale: SaleResult; settings: StoreSettings }) {
+function ReceiptBody({
+  sale,
+  settings,
+  storeLogoDataUrl,
+}: {
+  sale: SaleResult
+  settings: StoreSettings
+  storeLogoDataUrl: string | null
+}) {
   const methodLabel = PAYMENT_LABELS[sale.paymentMethod as PaymentMethod] ?? sale.paymentMethod
   const shortId = sale.saleId.slice(0, 8)
   const storeName = settings.storeName || 'Minha Loja'
@@ -1139,8 +1165,8 @@ function buildReceiptBodyHtmlForCopy(
   const storeName = settings.storeName || 'Minha Loja'
 
   // Store logo image (if set) replaces the bold store-name header line.
-  const headerHtml = settings.storeLogoUrl
-    ? `<div style="text-align:center;margin-bottom:2mm;"><img src="${escapeHtml(settings.storeLogoUrl)}" alt="${escapeHtml(storeName)}" style="max-width:200px;width:100%;margin:0 auto;object-fit:contain;" /></div>`
+  const headerHtml = storeLogoDataUrl
+    ? `<div style="text-align:center;margin-bottom:2mm;"><img src="${escapeHtml(storeLogoDataUrl)}" alt="${escapeHtml(storeName)}" style="max-width:200px;width:100%;margin:0 auto;object-fit:contain;" /></div>`
     : `<div class="header">${escapeHtml(storeName)}</div>`
 
   // Store contact info lines (phone / address / instagram), centered & muted.
@@ -1206,6 +1232,7 @@ function openPrintWindow(
   sale: SaleResult,
   settings: StoreSettings,
   devQrDataUrl: string | null,
+  storeLogoDataUrl: string | null,
 ): void {
   // Developer-branding block HTML (rendered at the bottom of both copies).
   const devBrandingHtml = buildDevBrandingHtml(settings, devQrDataUrl)
@@ -1217,7 +1244,7 @@ function openPrintWindow(
     <div class="receipt-copy" style="page-break-after:always;">
       ${viaLabelHtml('VIA CLIENTE')}
       <div class="receipt">
-        ${buildReceiptBodyHtmlForCopy(sale, false, settings)}
+        ${buildReceiptBodyHtmlForCopy(sale, false, settings, storeLogoDataUrl)}
         ${devBrandingHtml}
         <div class="cut-margin"></div>
       </div>
@@ -1233,7 +1260,7 @@ function openPrintWindow(
     <div class="receipt-copy">
       ${viaLabelHtml('VIA BALCÃO')}
       <div class="receipt">
-        ${buildReceiptBodyHtmlForCopy(sale, true, settings)}
+        ${buildReceiptBodyHtmlForCopy(sale, true, settings, storeLogoDataUrl)}
         ${devBrandingHtml}
         <div class="cut-margin"></div>
       </div>

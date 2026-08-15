@@ -133,7 +133,8 @@ export function mapStoreSettings(r: any): StoreSettings {
   return {
     id: str(r.id),
     storeName: str(r.storeName),
-    storeLogoUrl: strOrNull(r.storeLogoUrl),
+    storeLogo: strOrNull(r.storeLogo),
+    storeLogoUrl: null,
     storePhone: strOrNull(r.storePhone),
     storeWhatsapp: strOrNull(r.storeWhatsapp),
     storeInstagram: strOrNull(r.storeInstagram),

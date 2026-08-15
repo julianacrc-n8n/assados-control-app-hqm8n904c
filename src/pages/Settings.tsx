@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Store, Code, Loader2, AlertCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Store, Code, Loader2, AlertCircle, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/PageHeader'
@@ -33,7 +33,11 @@ export default function SettingsPage() {
   const [storeAddress, setStoreAddress] = useState('')
   const [storeThankYouMessage, setStoreThankYouMessage] = useState('')
   const [storePrimaryColor, setStorePrimaryColor] = useState(DEFAULT_PRIMARY_HEX)
-  const [storeLogoUrl, setStoreLogoUrl] = useState('')
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [logoRemoved, setLogoRemoved] = useState(false)
+  const [logoError, setLogoError] = useState<string | null>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null)
 
   const [devBrandName, setDevBrandName] = useState('')
   const [devBrandWhatsapp, setDevBrandWhatsapp] = useState('')
@@ -53,13 +57,33 @@ export default function SettingsPage() {
     setStoreAddress(settings.storeAddress ?? '')
     setStoreThankYouMessage(settings.storeThankYouMessage ?? '')
     setStorePrimaryColor(colorOrDefault(settings.storePrimaryColor))
-    setStoreLogoUrl(settings.storeLogoUrl ?? '')
+    if (!logoFile && !logoRemoved && settings.storeLogoUrl) {
+      setLogoPreview(settings.storeLogoUrl)
+    } else if (logoRemoved) {
+      setLogoPreview(null)
+    }
 
     setDevBrandName(settings.devBrandName ?? '')
     setDevBrandWhatsapp(settings.devBrandWhatsapp ?? '')
     setDevBrandLandingPageUrl(settings.devBrandLandingPageUrl ?? '')
     setDevBrandShowOnReceipt(!!settings.devBrandShowOnReceipt)
-  }, [settings, loading])
+  }, [settings, loading, logoFile, logoRemoved])
+
+  const handleLogoSelect = (file: File) => {
+    const allowed = ['image/png', 'image/jpeg', 'image/webp']
+    if (!allowed.includes(file.type)) {
+      setLogoError('Formato inválido. Use PNG, JPEG ou WebP.')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setLogoError('Arquivo muito grande. Máximo 2MB.')
+      return
+    }
+    setLogoError(null)
+    setLogoFile(file)
+    setLogoRemoved(false)
+    setLogoPreview(URL.createObjectURL(file))
+  }
 
   const handleSaveStore = async () => {
     setSavingStore(true)
@@ -72,9 +96,11 @@ export default function SettingsPage() {
         storeAddress: storeAddress.trim() || null,
         storeThankYouMessage: storeThankYouMessage.trim() || null,
         storePrimaryColor: storePrimaryColor || null,
-        storeLogoUrl: storeLogoUrl.trim() || null,
       }
-      await updateSettings(partial)
+      const logoArg: File | null | undefined = logoFile ? logoFile : logoRemoved ? null : undefined
+      await updateSettings(partial, logoArg)
+      setLogoFile(null)
+      setLogoRemoved(false)
       toast.success('Dados da loja salvos com sucesso.')
     } catch {
       toast.error('Erro ao salvar dados. Tente novamente.')
@@ -217,16 +243,72 @@ export default function SettingsPage() {
                     </div>
                   </Field>
 
-                  <Field
-                    label="URL do Logo"
-                    help="URL de imagem do logo da loja. Se vazio, mostra a inicial do nome."
-                  >
-                    <Input
-                      value={storeLogoUrl}
-                      onChange={(e) => setStoreLogoUrl(e.target.value)}
-                      placeholder="Ex: https://... ou cole uma imagem"
-                      className="h-11"
-                    />
+                  <Field label="Logo da Loja" help="PNG, JPEG ou WebP. Máximo 2MB.">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => logoInputRef.current?.click()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          logoInputRef.current?.click()
+                        }
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        const file = e.dataTransfer.files?.[0]
+                        if (file) handleLogoSelect(file)
+                      }}
+                      className="border-2 border-dashed border-border rounded-lg h-[120px] flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-primary/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {logoPreview ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <img
+                            src={logoPreview}
+                            alt="Pré-visualização do logo"
+                            style={{ maxHeight: '60px', maxWidth: '200px', objectFit: 'contain' }}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setLogoPreview(null)
+                              setLogoFile(null)
+                              setLogoRemoved(true)
+                              setLogoError(null)
+                              if (logoInputRef.current) logoInputRef.current.value = ''
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Remover logo
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <ImageIcon className="h-10 w-10 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">
+                            Arraste uma imagem aqui ou clique para selecionar
+                          </span>
+                        </>
+                      )}
+                      <input
+                        ref={logoInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleLogoSelect(file)
+                        }}
+                      />
+                    </div>
+                    {logoError && <p className="text-xs text-destructive">{logoError}</p>}
                   </Field>
                 </div>
               )}

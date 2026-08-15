@@ -7,12 +7,47 @@ import { mapStoreSettings } from '@/lib/pocketbase/maps'
 import type { StoreSettings, StoreSettingsInput } from '@/types'
 
 /**
+ * Convert a File / Blob into a base64 data URL string via FileReader.
+ * Used to embed the store logo into printable receipts (which cannot rely on
+ * token-authenticated URLs in a freshly opened print window).
+ */
+export async function fileToDataUrl(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader error'))
+    reader.readAsDataURL(file)
+  })
+}
+
+/**
+ * Fetch a (possibly token-authenticated) file URL and return its contents as a
+ * base64 data URL. Adds an `Authorization` header using the current auth token
+ * for safety (the URL may already include `?token=`). Returns null on any
+ * failure so callers can fall back silently.
+ */
+export async function fetchFileAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const headers: Record<string, string> = {}
+    const token = pb.authStore.token
+    if (token) headers['Authorization'] = token
+    const res = await fetch(url, { headers })
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return await fileToDataUrl(blob)
+  } catch {
+    return null
+  }
+}
+
+/**
  * Default settings used before the record has been fetched (or on a fresh
  * install where no record exists yet). Mirrors the spec defaults.
  */
 export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   id: '',
   storeName: 'Minha Loja',
+  storeLogo: null,
   storeLogoUrl: null,
   storePhone: null,
   storeWhatsapp: null,
@@ -32,10 +67,30 @@ export interface UseStoreSettings {
   settings: StoreSettings
   loading: boolean
   error: boolean
-  /** Update (or create) the store_settings record with a partial payload. */
-  updateSettings: (partial: StoreSettingsInput) => Promise<StoreSettings>
+  /**
+   * Update (or create) the store_settings record with a partial payload.
+   * Pass a `logoFile` File to upload a new logo, `null` to clear the existing
+   * logo, or `undefined` to leave the logo untouched.
+   */
+  updateSettings: (partial: StoreSettingsInput, logoFile?: File | null) => Promise<StoreSettings>
+  /** Convert a File/Blob to a base64 data URL. */
+  fileToDataUrl: (file: File | Blob) => Promise<string>
+  /** Fetch a file URL and return it as a base64 data URL (or null). */
+  fetchFileAsDataUrl: (url: string) => Promise<string | null>
   /** Re-fetch the record from the backend. */
   refetch: () => Promise<void>
+}
+
+/**
+ * Build the full (token-authenticated) URL for the store logo file field, or
+ * null when no logo is stored. Works for both the fetched record and realtime
+ * event records.
+ */
+function logoUrlFromRecord(record: RecordModel | null): string | null {
+  if (!record) return null
+  const filename = (record as unknown as { storeLogo?: unknown }).storeLogo
+  if (!filename || typeof filename !== 'string' || filename === '') return null
+  return pb.files.getUrl(record, filename)
 }
 
 /**
@@ -71,7 +126,9 @@ export function useStoreSettings(): UseStoreSettings {
       })
       if (!mountedRef.current) return
       recordIdRef.current = record.id
-      setSettings(mapStoreSettings(record))
+      const mapped = mapStoreSettings(record)
+      mapped.storeLogoUrl = logoUrlFromRecord(record)
+      setSettings(mapped)
     } catch {
       // NotFound → no settings configured yet; that's the expected empty state.
       if (!mountedRef.current) return
@@ -93,6 +150,7 @@ export function useStoreSettings(): UseStoreSettings {
       if (!mountedRef.current) return
       if (e.action !== 'create' && e.action !== 'update') return
       const updated = mapStoreSettings(e.record)
+      updated.storeLogoUrl = logoUrlFromRecord(e.record)
       recordIdRef.current = updated.id
       setSettings(updated)
     },
@@ -113,34 +171,65 @@ export function useStoreSettings(): UseStoreSettings {
   }, [load])
 
   const updateSettings = useCallback(
-    async (partial: StoreSettingsInput): Promise<StoreSettings> => {
+    async (partial: StoreSettingsInput, logoFile?: File | null): Promise<StoreSettings> => {
       // Merge the partial onto the current settings to compute the full
       // payload — PocketBase requires `storeName` (required field).
       const merged: StoreSettings = { ...settings, ...partial }
-      const payload = {
-        storeName: merged.storeName || 'Minha Loja',
-        storeLogoUrl: merged.storeLogoUrl ?? '',
-        storePhone: merged.storePhone ?? '',
-        storeWhatsapp: merged.storeWhatsapp ?? '',
-        storeInstagram: merged.storeInstagram ?? '',
-        storeAddress: merged.storeAddress ?? '',
-        storeThankYouMessage: merged.storeThankYouMessage ?? '',
-        storePrimaryColor: merged.storePrimaryColor ?? '',
-        devBrandName: merged.devBrandName ?? '',
-        devBrandWhatsapp: merged.devBrandWhatsapp ?? '',
-        devBrandShowOnReceipt: !!merged.devBrandShowOnReceipt,
-        devBrandLandingPageUrl: merged.devBrandLandingPageUrl ?? '',
+      const id = recordIdRef.current
+
+      let record
+      if (logoFile !== undefined) {
+        // FormData mode — needed whenever a file is being uploaded or cleared.
+        const formData = new FormData()
+        formData.append('storeName', merged.storeName || 'Minha Loja')
+        formData.append('storePhone', merged.storePhone ?? '')
+        formData.append('storeWhatsapp', merged.storeWhatsapp ?? '')
+        formData.append('storeInstagram', merged.storeInstagram ?? '')
+        formData.append('storeAddress', merged.storeAddress ?? '')
+        formData.append('storeThankYouMessage', merged.storeThankYouMessage ?? '')
+        formData.append('storePrimaryColor', merged.storePrimaryColor ?? '')
+        formData.append('devBrandName', merged.devBrandName ?? '')
+        formData.append('devBrandWhatsapp', merged.devBrandWhatsapp ?? '')
+        formData.append('devBrandShowOnReceipt', merged.devBrandShowOnReceipt ? 'true' : 'false')
+        formData.append('devBrandLandingPageUrl', merged.devBrandLandingPageUrl ?? '')
+        if (logoFile) {
+          formData.append('storeLogo', logoFile)
+        } else {
+          // null → clear the existing file.
+          formData.append('storeLogo', '')
+        }
+        if (id) {
+          record = await pb.collection('store_settings').update(id, formData)
+        } else {
+          record = await pb.collection('store_settings').create(formData)
+          recordIdRef.current = record.id
+        }
+      } else {
+        // JSON mode — no logo change. Omit `storeLogo` so PocketBase keeps
+        // the existing file, and never send `storeLogoUrl` (computed field).
+        const payload = {
+          storeName: merged.storeName || 'Minha Loja',
+          storePhone: merged.storePhone ?? '',
+          storeWhatsapp: merged.storeWhatsapp ?? '',
+          storeInstagram: merged.storeInstagram ?? '',
+          storeAddress: merged.storeAddress ?? '',
+          storeThankYouMessage: merged.storeThankYouMessage ?? '',
+          storePrimaryColor: merged.storePrimaryColor ?? '',
+          devBrandName: merged.devBrandName ?? '',
+          devBrandWhatsapp: merged.devBrandWhatsapp ?? '',
+          devBrandShowOnReceipt: !!merged.devBrandShowOnReceipt,
+          devBrandLandingPageUrl: merged.devBrandLandingPageUrl ?? '',
+        }
+        if (id) {
+          record = await pb.collection('store_settings').update(id, payload)
+        } else {
+          record = await pb.collection('store_settings').create(payload)
+          recordIdRef.current = record.id
+        }
       }
 
-      const id = recordIdRef.current
-      let record
-      if (id) {
-        record = await pb.collection('store_settings').update(id, payload)
-      } else {
-        record = await pb.collection('store_settings').create(payload)
-        recordIdRef.current = record.id
-      }
       const mapped = mapStoreSettings(record)
+      mapped.storeLogoUrl = logoUrlFromRecord(record)
       if (mountedRef.current) setSettings(mapped)
       return mapped
     },
@@ -152,6 +241,8 @@ export function useStoreSettings(): UseStoreSettings {
     loading,
     error,
     updateSettings,
+    fileToDataUrl,
+    fetchFileAsDataUrl,
     refetch: load,
   }
 }
